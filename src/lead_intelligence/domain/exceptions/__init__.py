@@ -5,6 +5,10 @@ from lead_intelligence.domain.exceptions.cleaning_exceptions import (
     LeadCleaningError,
     RuleExecutionError,
 )
+from lead_intelligence.domain.exceptions.identity_resolution_exceptions import (
+    InvalidIdentityResolutionConfigurationError,
+    LeadIdentityResolutionError,
+)
 from lead_intelligence.domain.exceptions.import_exceptions import (
     CorruptedSourceError,
     EmptySourceError,
@@ -24,4 +28,6 @@ __all__ = [
     "LeadCleaningError",
     "InvalidCleaningConfigurationError",
     "RuleExecutionError",
+    "LeadIdentityResolutionError",
+    "InvalidIdentityResolutionConfigurationError",
 ]

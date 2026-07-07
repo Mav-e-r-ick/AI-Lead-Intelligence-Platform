@@ -6,9 +6,9 @@ changes, promotions, funding events), generate AI-personalized outreach
 messages, and send them after human review.
 
 > **Status: Foundation + Import Engine + Cleaning Engine + Persistence
-> Infrastructure.** The project structure, configuration, and wiring are in
-> place. The **Import Engine** (reading Excel files into plain, unmodified
-> records — see
+> Infrastructure + Identity Resolution Engine (V1).** The project structure,
+> configuration, and wiring are in place. The **Import Engine** (reading
+> Excel files into plain, unmodified records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
 > and the **Cleaning Engine** (68 rules, normalizing and flagging that data —
 > see [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) and
@@ -19,11 +19,18 @@ messages, and send them after human review.
 > *interfaces* for every object identified in the Persistence Architecture,
 > dependency injection, Alembic migrations, and a `/health/database`
 > readiness check — is also in place (see `domain/repositories/`,
-> `infrastructure/database/`). No ORM models, concrete repositories, or
-> tables exist yet — that is deliberately a future task. Every other
-> business feature (domain entities, verification, inflection-point
-> detection, AI generation, sending) is still an empty, clearly-labeled
-> placeholder waiting for future work.
+> `infrastructure/database/`). The **Identity Resolution Engine (Version 1)**
+> — signal extraction, Strong/Moderate/Weak identifier scoring, candidate
+> generation, auto-merge/candidate-review/new-identity decisions, and
+> confidence recomputation, per the approved Identity Resolution RFC — is
+> implemented as pure, deterministic application logic (see
+> [`application/identity_resolution/README.md`](src/lead_intelligence/application/identity_resolution/README.md)).
+> No ORM models, concrete repositories, or tables exist yet, and Identity
+> Resolution's lineage redirects, rollback windows, and full reviewer
+> workflow are explicitly Version 2 — both deliberately deferred to future
+> tasks. Every other business feature (domain entities, verification,
+> inflection-point detection, AI generation, sending) is still an empty,
+> clearly-labeled placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -55,7 +62,7 @@ cp .env.example .env
 docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
-#    Persistence unit tests).
+#    Persistence/Identity Resolution unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -101,15 +108,16 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Repository + Unit of Work *interfaces* (10 named + base classes)
-│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py
+│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
-│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py
-│       │   ├── dto/               # models.py (Import Engine), cleaning_models.py (Cleaning Engine)
-│       │   └── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
-│       │       └── rules/          # One module per CLEANING_RULES.md category
+│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py
+│       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
+│       │   │   └── rules/          # One module per CLEANING_RULES.md category
+│       │   └── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -133,7 +141,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     ├── unit/
     │   ├── importer/               # Import Engine unit tests
     │   ├── cleaning/               # Cleaning Engine unit tests
-    │   └── persistence/            # Repository interfaces, Unit of Work, session factory, health check
+    │   ├── persistence/            # Repository interfaces, Unit of Work, session factory, health check
+    │   └── identity_resolution/    # Identity Resolution Engine unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -182,11 +191,18 @@ order the project brief lists them:
    check (`domain/repositories/`, `infrastructure/database/`). Domain
    entities, ORM models, and concrete repositories are not yet
    implemented — deliberately deferred to a future task.
-4. Verify emails, phone numbers, LinkedIn profiles, and company information.
-5. Detect professional inflection points (promotion, job change, resignation,
+4. ✅ Resolve identities — the **Identity Resolution Engine (Version 1)**
+   (`application/identity_resolution/`): extract Strong/Moderate/Weak
+   identity signals, generate candidate matches, compute explainable
+   confidence scores, and decide auto-merge / candidate-review / new-
+   identity, per the approved Identity Resolution RFC. Not yet
+   implemented (Version 2): identity lineage redirects, merge rollback
+   windows, and the full reviewer workflow.
+5. Verify emails, phone numbers, LinkedIn profiles, and company information.
+6. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).
-6. Generate AI-personalized outreach messages.
-7. Send emails after a human review step.
+7. Generate AI-personalized outreach messages.
+8. Send emails after a human review step.
 
 ## Handling sensitive data
 

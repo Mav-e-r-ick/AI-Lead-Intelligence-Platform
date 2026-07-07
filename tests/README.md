@@ -55,6 +55,22 @@ sitting right next to the code it tests for easy navigation.
   state, the same as separate requests would against PostgreSQL), and
   `test_health.py` (`check_database_connectivity` against both a reachable
   and an unreachable database).
+- `unit/identity_resolution/` covers the Identity Resolution Engine:
+  `test_config.py` (`IdentityResolutionProfile` validation), `fixtures.py`
+  (`FakeIdentityCandidatePort`, an in-memory stand-in for the not-yet-built
+  infrastructure adapter), `test_signal_extraction.py` (Person/Company
+  signal extraction, missing-field handling, fallback fields, the `www.`
+  domain-stripping behavior), `test_candidate_generation.py` (blocking
+  eligibility — title can never surface a candidate alone — dedup,
+  deterministic capping/ordering), `test_scoring.py` (every confidence
+  band, the "single weak signal is never sufficient" rule, contradiction
+  handling, determinism, `recompute_confidence` equivalence to
+  `score_candidate`), `test_decision.py` (auto-merge precedence, tie-
+  breaking, review-candidate ordering), `test_engine.py` (end-to-end
+  auto-merge/candidate-review/new-identity paths and dataset-level metrics,
+  using injected deterministic id/clock dependencies), `test_recomputation.py`
+  (confidence band transitions as new evidence arrives), and
+  `test_use_case.py` (`ResolveIdentityUseCase`).
 
 ## Running the tests
 ```bash
