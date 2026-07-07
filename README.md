@@ -5,13 +5,15 @@ Excel, clean and verify it, detect professional inflection points (job
 changes, promotions, funding events), generate AI-personalized outreach
 messages, and send them after human review.
 
-> **Status: Foundation only.** This repository currently contains project
-> structure, configuration, and wiring — **no business logic has been
-> implemented yet.** Every business feature (Excel import, verification, AI
-> generation, sending) is an empty, clearly-labeled placeholder waiting for
-> future work. If you're new to software engineering: think of this commit
-> as "building the empty house with labeled rooms" before any furniture
-> (features) moves in.
+> **Status: Foundation + Import Engine.** The project structure, configuration,
+> and wiring are in place, and the **Import Engine** (reading Excel files into
+> plain, unmodified records — see
+> [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
+> is implemented. Every other business feature (cleaning, verification, AI
+> generation, sending) is still an empty, clearly-labeled placeholder waiting
+> for future work. If you're new to software engineering: think of the
+> Import Engine as the first piece of real furniture moved into one room of
+> the house built in the foundation task.
 
 ## Why does an empty project need this much structure?
 
@@ -38,7 +40,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 # 3. Copy the example environment file and fill in real values later.
 cp .env.example .env
 
-# 4. Run the test suite (currently just a smoke test — see tests/README.md).
+# 4. Run the test suite (health-check smoke test + Import Engine unit tests).
 pytest
 
 # 5. Run the API and confirm the foundation actually boots.
@@ -75,17 +77,18 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Interfaces for saving/loading entities
-│       │   └── exceptions/        # Business-rule error types
+│       │   └── exceptions/        # import_exceptions.py (Import Engine's error types)
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # e.g. future import_leads_from_excel.py
-│       │   ├── services/          # Logic shared across use cases
-│       │   ├── ports/             # Interfaces infrastructure/ implements
-│       │   └── dto/               # Data shapes passed into/out of use cases
+│       │   ├── use_cases/         # import_dataset.py (ImportDatasetUseCase)
+│       │   ├── services/          # Logic shared across use cases (none yet)
+│       │   ├── ports/             # source_reader_port.py (SourceReaderPort)
+│       │   └── dto/               # models.py (RawRecord, SourceMetadata, ImportedLeadDataset, ...)
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base (no tables yet)
-│       │   ├── excel/             # Future Excel file reading/writing
+│       │   ├── importers/         # Import Engine — see importers/README.md
+│       │   │   └── excel/          # ExcelSourceReader, ExcelFileValidator, ExcelSheetSelector
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
 │       │       ├── phone_verification/
@@ -100,10 +103,11 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │           └── schemas/            # Pydantic request/response models for the API
 └── tests/
     ├── README.md
-    ├── unit/                     # Fast, isolated tests (none yet)
-    ├── integration/              # Tests spanning multiple pieces
-    │   └── test_health.py         # Proves the foundation actually runs
-    └── fixtures/                 # Shared test data/helpers (none yet)
+    ├── unit/
+    │   └── importer/              # Import Engine unit tests
+    ├── integration/               # Tests spanning multiple pieces
+    │   └── test_health.py          # Proves the foundation actually runs
+    └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
 ```
 
 Every folder that isn't self-explanatory has its own `README.md` right
@@ -130,12 +134,14 @@ what lets any outer piece (a database, a vendor API, a web framework) be
 replaced without touching the business logic. Full reasoning, diagrams, and
 the "why" behind every naming decision: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Roadmap (not yet implemented)
+## Roadmap
 
 These are the features this foundation is built to support, in the rough
-order the project brief lists them. None of them exist in code yet:
+order the project brief lists them:
 
-1. Import Excel files containing executive data.
+1. ✅ Import Excel files containing executive data — the **Import Engine**
+   (`infrastructure/importers/excel/`). Not yet implemented: CSV, Google
+   Sheets, and SQL adapters for the same `SourceReaderPort`.
 2. Clean and standardize the data.
 3. Verify emails, phone numbers, LinkedIn profiles, and company information.
 4. Detect professional inflection points (promotion, job change, resignation,

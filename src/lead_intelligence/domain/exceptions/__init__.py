@@ -1,4 +1,19 @@
-"""Custom exceptions describing business-rule violations in plain language.
+"""Custom exceptions describing business-rule violations in plain language."""
 
-Empty on purpose — this is a foundation-only task. See ../README.md.
-"""
+from lead_intelligence.domain.exceptions.import_exceptions import (
+    CorruptedSourceError,
+    EmptySourceError,
+    LeadImportError,
+    SheetSelectionError,
+    SourceNotFoundError,
+    UnsupportedSourceFormatError,
+)
+
+__all__ = [
+    "LeadImportError",
+    "SourceNotFoundError",
+    "UnsupportedSourceFormatError",
+    "CorruptedSourceError",
+    "EmptySourceError",
+    "SheetSelectionError",
+]

@@ -1,4 +1,10 @@
-"""Data Transfer Objects: plain data shapes passed into/out of use cases.
+"""Data Transfer Objects: plain data shapes passed into/out of use cases."""
 
-Empty on purpose — this is a foundation-only task. See ../README.md.
-"""
+from lead_intelligence.application.dto.models import (
+    ImportedLeadDataset,
+    ImportWarning,
+    RawRecord,
+    SourceMetadata,
+)
+
+__all__ = ["RawRecord", "SourceMetadata", "ImportWarning", "ImportedLeadDataset"]

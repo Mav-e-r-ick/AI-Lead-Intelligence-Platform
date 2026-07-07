@@ -108,14 +108,23 @@ verification vendors or AI providers to define what a "Lead" is.
 
 ## 7. What exists right now vs. what's still a placeholder?
 
-As of this foundation task, the **only working code** is:
+Working code, as of the Import Engine task:
 - `core/config.py` and `core/logging.py` — configuration/logging plumbing.
 - `infrastructure/database/base.py` and `session.py` — DB connection
   plumbing, no tables defined yet.
 - `interfaces/api/main.py` — a FastAPI app with a single `/health` endpoint.
-- `tests/integration/test_health.py` — a test proving the above actually runs.
+- **The Import Engine** — `application/ports/source_reader_port.py`,
+  `application/dto/models.py`, `application/use_cases/import_dataset.py`,
+  `domain/exceptions/import_exceptions.py`, and
+  `infrastructure/importers/excel/*` — reads `.xlsx` files into plain,
+  unmodified `RawRecord`s. See
+  `infrastructure/importers/README.md` for the full design. This is the
+  first *complete, working* vertical slice through all four layers.
+- `tests/integration/test_health.py` and `tests/unit/importer/*` — tests
+  proving the above actually runs.
 
-Everything else (`domain/entities`, `application/use_cases`,
-`infrastructure/external_services/*`, etc.) is an empty, correctly-placed
-folder with a docstring explaining its future purpose. This is intentional:
-the goal of this task was the skeleton, not the muscles.
+Everything else (`domain/entities`, `infrastructure/external_services/*`,
+cleaning/verification/AI-generation use cases, etc.) is still an empty,
+correctly-placed folder with a docstring explaining its future purpose —
+the Import Engine only reads and structures data; it does not interpret,
+clean, or act on it.

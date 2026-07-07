@@ -24,11 +24,12 @@ is behind the socket, as long as the plug shape (port) matches.
 
 | Folder | Purpose |
 |---|---|
-| `use_cases/` | One file per user-facing action (e.g. `import_leads_from_excel.py`, `verify_lead_contact_info.py`, `generate_outreach_message.py`). Each use case reads like a short story: "get the lead, check it, call the verifier, save the result." |
+| `use_cases/` | One file per user-facing action. **Implemented:** `import_dataset.py` (`ImportDatasetUseCase`). Still to come: `verify_lead_contact_info.py`, `generate_outreach_message.py`, etc. Each use case reads like a short story: "get the lead, check it, call the verifier, save the result." |
 | `services/` | Shared logic used by *multiple* use cases that doesn't belong to one specific business entity (e.g. a scoring/ranking helper). Keeps use cases from duplicating logic. |
-| `ports/` | Abstract interfaces ("contracts") that describe what the application layer *needs* from the outside world — e.g. `EmailVerifierPort`, `AIMessageGeneratorPort`, `EmailSenderPort`. Infrastructure code implements these interfaces. This is what makes "replace the email-verification vendor" a one-file change instead of a rewrite. |
-| `dto/` | **D**ata **T**ransfer **O**bjects — simple data shapes used to move information into and out of use cases (e.g. "the input needed to run the Excel-import use case"), kept separate from domain entities so the domain doesn't have to know about API request/response shapes. |
+| `ports/` | Abstract interfaces ("contracts") that describe what the application layer *needs* from the outside world. **Implemented:** `source_reader_port.py` (`SourceReaderPort`). Still to come: `EmailVerifierPort`, `AIMessageGeneratorPort`, `EmailSenderPort`. Infrastructure code implements these interfaces — this is what makes "replace a vendor" a one-file change instead of a rewrite. |
+| `dto/` | **D**ata **T**ransfer **O**bjects — simple data shapes used to move information into and out of use cases. **Implemented:** `models.py` (`RawRecord`, `SourceMetadata`, `ImportWarning`, `ImportedLeadDataset` — the Import Engine's output shapes), kept separate from domain entities so the domain doesn't have to know about them. |
 
 ## Current status
-Empty on purpose. No use cases have been implemented yet — this task is
-foundation only.
+The Import Engine's use case, port, and DTOs are implemented — see
+`infrastructure/importers/README.md` for the full picture. `services/`
+remains empty on purpose; no other use cases exist yet.

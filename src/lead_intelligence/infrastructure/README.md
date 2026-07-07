@@ -26,7 +26,9 @@ nothing in `domain/`, ever needs to change.
 | Folder | Purpose |
 |---|---|
 | `database/` | Database setup: the SQLAlchemy connection/engine, session management, and (later) concrete repository classes that implement the `domain/repositories/` interfaces. |
-| `excel/` | Code that reads and writes Excel files (`.xlsx`) — the technical detail of *how* a spreadsheet becomes Python data, used by the future "import Excel files" use case. |
+| `importers/` | Adapters that bring external tabular data **in** — one sub-folder per source technology, each implementing `application/ports/source_reader_port.py`. See `importers/README.md` for the full Import Engine design. |
+| `importers/excel/` | **Implemented.** Reads `.xlsx` files (`ExcelSourceReader`, `ExcelFileValidator`, `ExcelSheetSelector`) — the technical detail of *how* a spreadsheet becomes plain, unmodified records. |
+| `importers/csv/`, `importers/google_sheets/`, `importers/sql/` | Future sibling adapters for other tabular sources, implementing the same port — not built yet. |
 | `external_services/email_verification/` | Talks to whichever email-verification vendor is chosen (e.g. ZeroBounce, NeverBounce, Hunter.io). |
 | `external_services/phone_verification/` | Talks to whichever phone-verification vendor is chosen (e.g. Twilio Lookup, Numverify). |
 | `external_services/linkedin/` | Talks to whichever LinkedIn/profile-data provider is chosen (e.g. Proxycurl). |
@@ -35,6 +37,8 @@ nothing in `domain/`, ever needs to change.
 | `external_services/email_sending/` | Wraps SMTP / a transactional-email provider for actually sending the reviewed outreach emails. |
 
 ## Current status
-Empty on purpose — no vendor integrations exist yet. These folders exist so
-each future integration has one obvious, isolated home, and so that no
-external SDK ever needs to be imported from `domain/` or `application/`.
+The Excel Import Engine (`importers/excel/`) is implemented — see its
+README for details. Every other folder here is still empty on purpose; no
+other vendor integrations exist yet. These folders exist so each future
+integration has one obvious, isolated home, and so that no external SDK
+ever needs to be imported from `domain/` or `application/`.
