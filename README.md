@@ -142,7 +142,10 @@ order the project brief lists them:
 1. ✅ Import Excel files containing executive data — the **Import Engine**
    (`infrastructure/importers/excel/`). Not yet implemented: CSV, Google
    Sheets, and SQL adapters for the same `SourceReaderPort`.
-2. Clean and standardize the data.
+2. 🟡 Clean and standardize the data — the **Cleaning Engine**'s architecture
+   is approved and every rule is specified in
+   [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) (68 rules, IDs
+   `CLN-001`–`CLN-068`); implementation has not started.
 3. Verify emails, phone numbers, LinkedIn profiles, and company information.
 4. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).

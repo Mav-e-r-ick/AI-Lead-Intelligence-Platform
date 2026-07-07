@@ -123,6 +123,15 @@ Working code, as of the Import Engine task:
 - `tests/integration/test_health.py` and `tests/unit/importer/*` — tests
   proving the above actually runs.
 
+Specified but not yet implemented:
+- **The Cleaning Engine** — its architecture (pipeline stages, ports,
+  configuration strategy) has been designed and approved, and every
+  individual cleaning rule has a permanent, versioned specification in
+  [`docs/CLEANING_RULES.md`](CLEANING_RULES.md) (Rule IDs `CLN-001`–`CLN-068`).
+  No code exists for it yet — implementation is a distinct future task, and
+  each rule's entry is authoritative over whatever code eventually
+  implements it, not the other way around.
+
 Everything else (`domain/entities`, `infrastructure/external_services/*`,
 cleaning/verification/AI-generation use cases, etc.) is still an empty,
 correctly-placed folder with a docstring explaining its future purpose —
