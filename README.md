@@ -5,15 +5,23 @@ Excel, clean and verify it, detect professional inflection points (job
 changes, promotions, funding events), generate AI-personalized outreach
 messages, and send them after human review.
 
-> **Status: Foundation + Import Engine + Cleaning Engine.** The project
-> structure, configuration, and wiring are in place. The **Import Engine**
-> (reading Excel files into plain, unmodified records — see
+> **Status: Foundation + Import Engine + Cleaning Engine + Persistence
+> Infrastructure.** The project structure, configuration, and wiring are in
+> place. The **Import Engine** (reading Excel files into plain, unmodified
+> records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
 > and the **Cleaning Engine** (68 rules, normalizing and flagging that data —
 > see [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) and
 > [`application/cleaning/README.md`](src/lead_intelligence/application/cleaning/README.md))
 > are both implemented, tested, and verified end-to-end against the reference
-> dataset. Every other business feature (verification, inflection-point
+> dataset. The **Persistence Infrastructure** — PostgreSQL/SQLAlchemy
+> engine and session management, a Unit of Work abstraction, the repository
+> *interfaces* for every object identified in the Persistence Architecture,
+> dependency injection, Alembic migrations, and a `/health/database`
+> readiness check — is also in place (see `domain/repositories/`,
+> `infrastructure/database/`). No ORM models, concrete repositories, or
+> tables exist yet — that is deliberately a future task. Every other
+> business feature (domain entities, verification, inflection-point
 > detection, AI generation, sending) is still an empty, clearly-labeled
 > placeholder waiting for future work.
 
@@ -42,13 +50,24 @@ pip install -r requirements.txt -r requirements-dev.txt
 # 3. Copy the example environment file and fill in real values later.
 cp .env.example .env
 
-# 4. Run the test suite (health-check smoke test + Import Engine unit tests).
+# 4. (Optional) Start a local PostgreSQL matching .env.example. Without
+#    this, DATABASE_URL still works against the zero-setup SQLite default.
+docker-compose up -d postgres
+
+# 5. Run the test suite (health-check smoke test + Import/Cleaning/
+#    Persistence unit tests).
 pytest
 
-# 5. Run the API and confirm the foundation actually boots.
+# 6. Run the API and confirm the foundation actually boots.
 uvicorn lead_intelligence.interfaces.api.main:app --reload
 # then visit http://127.0.0.1:8000/health -> {"status": "ok"}
+# and http://127.0.0.1:8000/health/database -> {"status": "ok", "error": null}
 ```
+
+Alembic (schema migrations) is configured but has no migrations to run yet
+— no ORM models exist, so there is nothing to generate a migration for.
+Once models exist, the usual commands apply: `alembic revision --autogenerate
+-m "..."` then `alembic upgrade head`.
 
 ## Project layout
 
@@ -56,6 +75,9 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 .
 ├── .env.example              # Template listing every config value the app needs (fake values)
 ├── .gitignore                 # Tells git which files to never track (secrets, caches, PII data)
+├── docker-compose.yml           # Local PostgreSQL, matching .env.example's DATABASE_URL
+├── alembic.ini                  # Alembic (migrations) configuration
+├── alembic/                     # Alembic environment + versions/ (no migrations yet — no ORM models yet)
 ├── requirements.txt            # Production Python dependencies
 ├── requirements-dev.txt        # Extra dependencies needed only for development (tests, linters)
 ├── README.md                   # You are here
@@ -78,7 +100,7 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │       │   ├── README.md
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
-│       │   ├── repositories/      # Interfaces for saving/loading entities
+│       │   ├── repositories/      # Repository + Unit of Work *interfaces* (10 named + base classes)
 │       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
@@ -90,7 +112,7 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │       │       └── rules/          # One module per CLEANING_RULES.md category
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
-│       │   ├── database/          # SQLAlchemy engine/session/base (no tables yet)
+│       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
 │       │   ├── importers/         # Import Engine — see importers/README.md
 │       │   │   └── excel/          # ExcelSourceReader, ExcelFileValidator, ExcelSheetSelector
 │       │   └── external_services/ # One sub-folder per vendor category:
@@ -102,16 +124,18 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │       │       └── email_sending/
 │       └── interfaces/           # How the outside world talks to us
 │           ├── README.md
-│           ├── api/                # FastAPI app (main.py has a working /health route)
+│           ├── api/                # FastAPI app (main.py: /health, /health/database; dependencies.py: DI providers)
 │           ├── cli/                # Future command-line entry points
 │           └── schemas/            # Pydantic request/response models for the API
 └── tests/
     ├── README.md
+    ├── conftest.py                # Forces an in-memory DATABASE_URL for tests (no stray local_dev.db)
     ├── unit/
     │   ├── importer/               # Import Engine unit tests
-    │   └── cleaning/               # Cleaning Engine unit tests
+    │   ├── cleaning/               # Cleaning Engine unit tests
+    │   └── persistence/            # Repository interfaces, Unit of Work, session factory, health check
     ├── integration/               # Tests spanning multiple pieces
-    │   └── test_health.py          # Proves the foundation actually runs
+    │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
 ```
 
@@ -127,6 +151,8 @@ top-level table is the map; the per-folder READMEs are the terrain.
 | `requirements-dev.txt` | Additional packages needed only for development (pytest, black, ruff, mypy, pre-commit) — never installed on a production server. |
 | `.gitignore` | Prevents secrets (`.env`), generated files (`__pycache__`, caches), local databases, and — importantly — real lead data (`data/raw`, `data/processed`) from ever being committed to git. |
 | `.env.example` | A checked-in template listing every environment variable the app will use, with placeholder (fake) values. Copy it to `.env` and fill in real secrets locally; `.env` itself is gitignored. |
+| `docker-compose.yml` | Runs a local PostgreSQL container with credentials matching `.env.example`, so `DATABASE_URL` works out of the box with `docker-compose up -d postgres`. |
+| `alembic.ini` / `alembic/` | Migration tooling configuration. `alembic/env.py` reads `DATABASE_URL` from `core.config.get_settings()` (never hardcoded), and points at `Base.metadata` for future autogenerate support. No migrations exist yet — no ORM models exist yet. |
 | `README.md` | This file. |
 
 ## Clean Architecture, in one sentence
@@ -150,11 +176,17 @@ order the project brief lists them:
 2. ✅ Clean and standardize the data — the **Cleaning Engine**
    (`application/cleaning/`), implementing all 68 rules specified in
    [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) (`CLN-001`–`CLN-068`).
-3. Verify emails, phone numbers, LinkedIn profiles, and company information.
-4. Detect professional inflection points (promotion, job change, resignation,
+3. ✅ Persistence foundation — PostgreSQL/SQLAlchemy engine + session
+   management, Unit of Work, repository *interfaces* for every object in
+   the Persistence Architecture, DI, Alembic, and a `/health/database`
+   check (`domain/repositories/`, `infrastructure/database/`). Domain
+   entities, ORM models, and concrete repositories are not yet
+   implemented — deliberately deferred to a future task.
+4. Verify emails, phone numbers, LinkedIn profiles, and company information.
+5. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).
-5. Generate AI-personalized outreach messages.
-6. Send emails after a human review step.
+6. Generate AI-personalized outreach messages.
+7. Send emails after a human review step.
 
 ## Handling sensitive data
 

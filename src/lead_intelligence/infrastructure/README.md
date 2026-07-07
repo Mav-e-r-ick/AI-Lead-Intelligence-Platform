@@ -25,7 +25,7 @@ nothing in `domain/`, ever needs to change.
 
 | Folder | Purpose |
 |---|---|
-| `database/` | Database setup: the SQLAlchemy connection/engine, session management, and (later) concrete repository classes that implement the `domain/repositories/` interfaces. |
+| `database/` | **Implemented (infrastructure only).** SQLAlchemy engine/session factories (`session.py`), the declarative `Base` (`base.py`, no tables yet), the concrete `SqlAlchemyUnitOfWork` (`unit_of_work.py`), and a `check_database_connectivity` health check (`health.py`). Concrete repository classes that implement the `domain/repositories/` interfaces are a future task. |
 | `importers/` | Adapters that bring external tabular data **in** — one sub-folder per source technology, each implementing `application/ports/source_reader_port.py`. See `importers/README.md` for the full Import Engine design. |
 | `importers/excel/` | **Implemented.** Reads `.xlsx` files (`ExcelSourceReader`, `ExcelFileValidator`, `ExcelSheetSelector`) — the technical detail of *how* a spreadsheet becomes plain, unmodified records. |
 | `importers/csv/`, `importers/google_sheets/`, `importers/sql/` | Future sibling adapters for other tabular sources, implementing the same port — not built yet. |
@@ -37,8 +37,22 @@ nothing in `domain/`, ever needs to change.
 | `external_services/email_sending/` | Wraps SMTP / a transactional-email provider for actually sending the reviewed outreach emails. |
 
 ## Current status
-The Excel Import Engine (`importers/excel/`) is implemented — see its
-README for details. Every other folder here is still empty on purpose; no
-other vendor integrations exist yet. These folders exist so each future
-integration has one obvious, isolated home, and so that no external SDK
-ever needs to be imported from `domain/` or `application/`.
+The Excel Import Engine (`importers/excel/`) and the `database/` package
+(engine/session, Unit of Work, health check — see the table above) are
+implemented. Every `external_services/` folder here is still empty on
+purpose; no vendor integrations exist yet. These folders exist so each
+future integration has one obvious, isolated home, and so that no external
+SDK ever needs to be imported from `domain/` or `application/`.
+
+### `database/` — configuration
+
+Local PostgreSQL for development is provided by the root `docker-compose.yml`
+(`docker-compose up -d postgres`), with credentials matching
+`.env.example`'s `DATABASE_URL`. Without it, `DATABASE_URL` falls back to a
+zero-setup local SQLite file. Connection pool sizing
+(`DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_PRE_PING` in
+`.env.example`) only takes effect against PostgreSQL — SQLite has no
+comparable connection pool. Schema migrations are managed by Alembic (root
+`alembic.ini` / `alembic/`), configured to read `DATABASE_URL` from
+`core.config.get_settings()` rather than a hardcoded value, and pointed at
+`Base.metadata` for future `--autogenerate` support once ORM models exist.

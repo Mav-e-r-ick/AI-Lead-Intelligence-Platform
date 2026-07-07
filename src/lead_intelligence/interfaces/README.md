@@ -17,13 +17,16 @@ response," never "decide whether an email is valid."
 
 | Folder | Purpose |
 |---|---|
-| `api/` | The FastAPI web application: `main.py` creates the app object; `routes/` will hold one file per group of endpoints (e.g. `leads.py`, `outreach.py`) once real endpoints are built. |
+| `api/` | The FastAPI web application: `main.py` creates the app object and holds `/health` and `/health/database`; `dependencies.py` provides `get_engine`/`get_unit_of_work` for `Depends(...)`-based dependency injection; `routes/` will hold one file per group of endpoints (e.g. `leads.py`, `outreach.py`) once real endpoints are built. |
 | `cli/` | Command-line entry points for scripts/automation (e.g. "run the Excel import from the terminal"), for later use. |
 | `schemas/` | Pydantic models describing the exact shape of API request/response bodies. These are intentionally separate from `application/dto/` and `domain/entities/` — the outside-facing JSON shape is allowed to change (e.g. renaming a public field) without forcing a change to internal business objects. |
 
 ## Current status
-Only one real thing exists right now: a `/health` endpoint in `api/main.py`,
-included purely to prove the layers wire together and the app can actually
-start. It contains no business logic. Everything else is an empty,
-correctly-placed folder waiting for future work. See `../README.md` (project
-root) and `docs/ARCHITECTURE.md` for the full picture.
+Two things exist right now, both in `api/`: a `/health` liveness endpoint
+(proves the process is up) and a `/health/database` readiness endpoint
+(proves the configured database is actually reachable, via
+`infrastructure/database/health.py`), plus `dependencies.py` wiring the
+database Engine and Unit of Work into FastAPI's `Depends()` system. Neither
+contains business logic. Everything else is an empty, correctly-placed
+folder waiting for future work. See `../README.md` (project root) and
+`docs/ARCHITECTURE.md` for the full picture.

@@ -1,0 +1,31 @@
+# docker-compose.yml
+# ============================================================================
+# WHY THIS FILE EXISTS:
+# The app's DATABASE_URL (see .env.example) points at a local PostgreSQL
+# server on localhost:5432. This file runs that server in a container, with
+# credentials and a database name that match .env.example exactly, so a new
+# developer can go from a fresh checkout to a working database with one
+# command: `docker-compose up -d postgres`. Nothing else — no app container,
+# no other services — is defined here; this is persistence infrastructure
+# only.
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lead_intelligence
+      POSTGRES_PASSWORD: lead_intelligence
+      POSTGRES_DB: lead_intelligence
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lead_intelligence -d lead_intelligence"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -14,9 +14,15 @@ sitting right next to the code it tests for easy navigation.
 | `fixtures/` | Shared, reusable test data and setup helpers. **Implemented:** `excel_builder.py` — builds small, disposable `.xlsx` files in a temp directory so Import Engine tests never depend on the real (gitignored) sample dataset. |
 
 ## What's here right now
-- `integration/test_health.py` calls the `/health` endpoint from
-  `interfaces/api/main.py` and checks it responds successfully — proving
-  the core -> interfaces import chain works.
+- `conftest.py` sets `DATABASE_URL` to an in-memory SQLite database before
+  any test module is imported, so importing the FastAPI app (which
+  constructs a real database Engine at import time) never leaves a stray
+  `local_dev.db` file in the repo root.
+- `integration/test_health.py` calls `/health` and `/health/database` from
+  `interfaces/api/main.py` — proving the core -> interfaces import chain
+  works, and that the readiness check correctly reports both a reachable
+  database and (via a dependency override pointed at an unreachable port)
+  an unreachable one as HTTP 503.
 - `unit/importer/` covers the Import Engine: `test_file_validator.py`,
   `test_sheet_selector.py`, `test_excel_reader.py`,
   `test_import_dataset_use_case.py`, and `test_models.py`. All of them use
@@ -35,6 +41,20 @@ sitting right next to the code it tests for easy navigation.
   rules — name casing, phone E.164 formatting, the Pre-Tax-Profit exclusion
   in CLN-048, the CLN-016/CLN-067 mutual-exclusivity check, and a regression
   test for the `www.`-prefix bug found during end-to-end verification).
+- `unit/persistence/` covers the Persistence Infrastructure:
+  `test_base_repository.py` (the generic `Repository` /
+  `AppendOnlyRepository` / `MutableRepository` hierarchy — including that
+  `AppendOnlyRepository` structurally has no `update()`),
+  `test_repository_interfaces.py` (every one of the 10 named repository
+  interfaces is built on the correct base class, per the approved
+  Persistence Architecture),
+  `test_session.py` (the SQLite-vs-PostgreSQL branching in
+  `create_engine_from_settings`), `test_unit_of_work.py`
+  (`SqlAlchemyUnitOfWork`'s commit/rollback lifecycle, using a temp-file
+  SQLite database so separate Unit of Work instances share real persisted
+  state, the same as separate requests would against PostgreSQL), and
+  `test_health.py` (`check_database_connectivity` against both a reachable
+  and an unreachable database).
 
 ## Running the tests
 ```bash

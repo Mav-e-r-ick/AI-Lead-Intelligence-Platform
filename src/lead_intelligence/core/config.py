@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-to-a-long-random-string"
     database_url: str = "sqlite:///./local_dev.db"
 
+    # Connection pool tuning. Defaults are conservative and sane for a
+    # single-instance deployment; SQLite ignores pool sizing entirely
+    # (it has no real connection pool), so these only take effect against
+    # PostgreSQL. pool_pre_ping issues a cheap "is this connection still
+    # alive" check before handing a pooled connection out, which is what
+    # prevents "server closed the connection unexpectedly" errors after a
+    # database restart or a long idle period.
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
+    database_pool_pre_ping: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
