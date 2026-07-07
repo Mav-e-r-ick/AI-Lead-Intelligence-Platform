@@ -24,6 +24,17 @@ sitting right next to the code it tests for easy navigation.
   run fast and don't require any external file — including one test that
   directly proves leading zeros survive a round trip through a text-typed
   identifier column.
+- `unit/cleaning/` covers the Cleaning Engine: `test_registry_consistency.py`
+  (every one of the 68 rules checked against its CLEANING_RULES.md
+  invariants), `test_common_rules.py` (the generic, reusable rule base
+  classes), `test_pipeline.py` (stage ordering, the business master switch,
+  fail-safe error handling, audit trail assembly, using small fake rules to
+  isolate orchestration from any individual rule), `test_config.py`
+  (`CleaningProfile`), `test_clean_dataset_use_case.py`, and
+  `test_rules_behavior.py` (targeted tests for the bespoke, non-generic
+  rules — name casing, phone E.164 formatting, the Pre-Tax-Profit exclusion
+  in CLN-048, the CLN-016/CLN-067 mutual-exclusivity check, and a regression
+  test for the `www.`-prefix bug found during end-to-end verification).
 
 ## Running the tests
 ```bash

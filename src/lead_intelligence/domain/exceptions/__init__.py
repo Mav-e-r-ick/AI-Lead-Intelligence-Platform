@@ -1,5 +1,10 @@
 """Custom exceptions describing business-rule violations in plain language."""
 
+from lead_intelligence.domain.exceptions.cleaning_exceptions import (
+    InvalidCleaningConfigurationError,
+    LeadCleaningError,
+    RuleExecutionError,
+)
 from lead_intelligence.domain.exceptions.import_exceptions import (
     CorruptedSourceError,
     EmptySourceError,
@@ -16,4 +21,7 @@ __all__ = [
     "CorruptedSourceError",
     "EmptySourceError",
     "SheetSelectionError",
+    "LeadCleaningError",
+    "InvalidCleaningConfigurationError",
+    "RuleExecutionError",
 ]

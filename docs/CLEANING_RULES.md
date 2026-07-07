@@ -2,30 +2,46 @@
 
 | | |
 |---|---|
-| **Document status** | Draft specification — precedes implementation |
-| **Document version** | 1.0.0 |
+| **Document status** | Implemented — see Implementation Status below |
+| **Document version** | 1.1.0 |
 | **Owner** | AI Lead Intelligence Platform — Architecture |
 | **Applies to** | The Cleaning Engine (`application/cleaning/`) |
 
 This document is the **official, permanent specification** for every cleaning
-rule in the platform. Once the Cleaning Engine is implemented, its code must
-conform to this registry — not the other way around. If an implementer finds
-a reason to deviate from a rule as specified here, the correct order of
-operations is: update this document, get it reviewed, *then* change the code.
+rule in the platform. The Cleaning Engine's code must conform to this
+registry — not the other way around. If an implementer finds a reason to
+deviate from a rule as specified here, the correct order of operations is:
+update this document, get it reviewed, *then* change the code.
 
-This document assumes the previously approved Cleaning Engine architecture:
-a three-stage pipeline (**Safe/Lossless → Business → Warning**) executed by a
+This document assumes the approved Cleaning Engine architecture: a
+three-stage pipeline (**Safe/Lossless → Business → Warning**) executed by a
 `CleaningPipeline` over records produced by the Import Engine, governed by a
 `CleaningProfile`, implementing the `NormalizationRule` and `QualityCheckRule`
 interfaces, and producing `CleanedLeadRecord` objects carrying a
 `field_changes` audit trail and a `warnings` list. This document does not
 re-derive that architecture — it catalogs the individual rules that plug into
-it.
+it. See `src/lead_intelligence/application/cleaning/README.md` for how the
+implementation is organized.
 
-**No Python code appears in this document, and none of it has been
-implemented yet.** Every rule below is written as an implementation-ready
-specification: an engineer should be able to build, test, and code-review a
-rule using nothing but its entry here.
+## Implementation Status
+
+All 68 rules (`CLN-001`–`CLN-068`) are **implemented and Approved** per the
+Rule Lifecycle in §4 — each has passed its Test Cases as an automated test
+(`tests/unit/cleaning/`) and been verified end-to-end against the reference
+dataset (2,644 real records, 0 pipeline failures). Per §4, individual rules
+are promoted from Draft to Approved as their implementation lands; this
+registry reached full coverage in one implementation pass, so every rule
+carries the same status rather than a per-rule marker.
+
+One correction was made during end-to-end verification, recorded here per
+this document's own governance (spec updated, then code): **CLN-066**
+(Email Domain vs. Company Domain Mismatch) initially fired on ~98% of
+records because company URLs in the reference dataset are almost always
+stored as `http://www.example.com` while emails never carry a `www.`
+subdomain — the comparison was implicitly assuming both sides had the same
+subdomain convention. Fixed by stripping a leading `www.` before comparing;
+the warning rate dropped to ~17.5%, a plausible real signal. CLN-066's Rule
+Description in §9.8 should be read as including this normalization step.
 
 ---
 
@@ -2316,13 +2332,18 @@ corporate contact behaves differently in outreach than a corporate address
 — a useful plausibility signal, not a truth claim about the contact.
 
 **Rule Description:** Compares the domain portion of `Email` against the
-domain portion of `URL` (after scheme normalization); raises a warning if
-they don't match and `Email`'s domain isn't itself a well-known generic
-provider already expected to differ (e.g., "gmail.com" is expected to
-differ and is excluded from triggering this comparison as a false-positive
-source unless explicitly configured otherwise).
+domain portion of `URL` (after scheme normalization, and after stripping a
+leading `www.` subdomain from the URL side — added after implementation
+verification showed almost every URL in the reference dataset is stored as
+`http://www.example.com` while emails never carry a `www.` subdomain,
+which without this step made the comparison a near-universal false
+positive); raises a warning if the domains still don't match and `Email`'s
+domain isn't itself a well-known generic provider already expected to
+differ (e.g., "gmail.com" is expected to differ and is excluded from
+triggering this comparison as a false-positive source unless explicitly
+configured otherwise).
 
-**Input Example:** `Email = "cristinaf@justfoodfordogs.com"`, `URL = "https://acmecorp.com"` → Warning `EMAIL_DOMAIN_COMPANY_DOMAIN_MISMATCH`.
+**Input Example:** `Email = "cristinaf@justfoodfordogs.com"`, `URL = "http://www.justfoodfordogs.com"` → no warning (same domain once `www.` is stripped). `Email = "cristinaf@justfoodfordogs.com"`, `URL = "https://acmecorp.com"` → Warning `EMAIL_DOMAIN_COMPANY_DOMAIN_MISMATCH`.
 
 **Potential Risks:** Legitimate mismatches are common (multi-brand
 companies, agencies managing outreach on a client's behalf); must remain
@@ -2330,6 +2351,7 @@ low-confidence and purely informational, never used to reject a record.
 
 **Test Cases:**
 - Given matching domains, expect no warning.
+- Given a `www.`-prefixed URL whose base domain matches the email domain, expect no warning.
 - Given mismatched domains where neither is a known generic provider, expect the warning.
 - Given `Email` domain is a known generic provider (e.g., "gmail.com") with the default exclusion configured, expect no warning.
 

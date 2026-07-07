@@ -108,7 +108,7 @@ verification vendors or AI providers to define what a "Lead" is.
 
 ## 7. What exists right now vs. what's still a placeholder?
 
-Working code, as of the Import Engine task:
+Working code:
 - `core/config.py` and `core/logging.py` — configuration/logging plumbing.
 - `infrastructure/database/base.py` and `session.py` — DB connection
   plumbing, no tables defined yet.
@@ -118,22 +118,24 @@ Working code, as of the Import Engine task:
   `domain/exceptions/import_exceptions.py`, and
   `infrastructure/importers/excel/*` — reads `.xlsx` files into plain,
   unmodified `RawRecord`s. See
-  `infrastructure/importers/README.md` for the full design. This is the
-  first *complete, working* vertical slice through all four layers.
-- `tests/integration/test_health.py` and `tests/unit/importer/*` — tests
-  proving the above actually runs.
-
-Specified but not yet implemented:
-- **The Cleaning Engine** — its architecture (pipeline stages, ports,
-  configuration strategy) has been designed and approved, and every
-  individual cleaning rule has a permanent, versioned specification in
-  [`docs/CLEANING_RULES.md`](CLEANING_RULES.md) (Rule IDs `CLN-001`–`CLN-068`).
-  No code exists for it yet — implementation is a distinct future task, and
-  each rule's entry is authoritative over whatever code eventually
-  implements it, not the other way around.
+  `infrastructure/importers/README.md` for the full design.
+- **The Cleaning Engine** — `application/cleaning/*` (68 rules, `CLN-001`–`CLN-068`),
+  `application/ports/cleaning_rule_port.py`, `application/dto/cleaning_models.py`,
+  `application/use_cases/clean_dataset.py`, and
+  `domain/exceptions/cleaning_exceptions.py` — normalizes an
+  `ImportedLeadDataset` into a `CleanedLeadDataset` per
+  [`docs/CLEANING_RULES.md`](CLEANING_RULES.md), the authoritative spec.
+  See `application/cleaning/README.md` for the full design. Together with
+  the Import Engine, this is the first *complete, working* two-stage
+  pipeline through all four layers.
+- `tests/integration/test_health.py`, `tests/unit/importer/*`, and
+  `tests/unit/cleaning/*` — tests proving the above actually runs
+  (including an end-to-end verification against the 2,644-record reference
+  dataset with zero pipeline failures).
 
 Everything else (`domain/entities`, `infrastructure/external_services/*`,
-cleaning/verification/AI-generation use cases, etc.) is still an empty,
+verification/AI-generation use cases, etc.) is still an empty,
 correctly-placed folder with a docstring explaining its future purpose —
-the Import Engine only reads and structures data; it does not interpret,
-clean, or act on it.
+even together, the Import and Cleaning Engines only read, structure, and
+normalize data; neither verifies anything against an external system,
+deduplicates, writes to a database, or acts on the data in any way.

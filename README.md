@@ -5,15 +5,17 @@ Excel, clean and verify it, detect professional inflection points (job
 changes, promotions, funding events), generate AI-personalized outreach
 messages, and send them after human review.
 
-> **Status: Foundation + Import Engine.** The project structure, configuration,
-> and wiring are in place, and the **Import Engine** (reading Excel files into
-> plain, unmodified records — see
+> **Status: Foundation + Import Engine + Cleaning Engine.** The project
+> structure, configuration, and wiring are in place. The **Import Engine**
+> (reading Excel files into plain, unmodified records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
-> is implemented. Every other business feature (cleaning, verification, AI
-> generation, sending) is still an empty, clearly-labeled placeholder waiting
-> for future work. If you're new to software engineering: think of the
-> Import Engine as the first piece of real furniture moved into one room of
-> the house built in the foundation task.
+> and the **Cleaning Engine** (68 rules, normalizing and flagging that data —
+> see [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) and
+> [`application/cleaning/README.md`](src/lead_intelligence/application/cleaning/README.md))
+> are both implemented, tested, and verified end-to-end against the reference
+> dataset. Every other business feature (verification, inflection-point
+> detection, AI generation, sending) is still an empty, clearly-labeled
+> placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -77,13 +79,15 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Interfaces for saving/loading entities
-│       │   └── exceptions/        # import_exceptions.py (Import Engine's error types)
+│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py (ImportDatasetUseCase)
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
-│       │   ├── ports/             # source_reader_port.py (SourceReaderPort)
-│       │   └── dto/               # models.py (RawRecord, SourceMetadata, ImportedLeadDataset, ...)
+│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py
+│       │   ├── dto/               # models.py (Import Engine), cleaning_models.py (Cleaning Engine)
+│       │   └── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
+│       │       └── rules/          # One module per CLEANING_RULES.md category
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base (no tables yet)
@@ -104,7 +108,8 @@ uvicorn lead_intelligence.interfaces.api.main:app --reload
 └── tests/
     ├── README.md
     ├── unit/
-    │   └── importer/              # Import Engine unit tests
+    │   ├── importer/               # Import Engine unit tests
+    │   └── cleaning/               # Cleaning Engine unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation actually runs
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -142,10 +147,9 @@ order the project brief lists them:
 1. ✅ Import Excel files containing executive data — the **Import Engine**
    (`infrastructure/importers/excel/`). Not yet implemented: CSV, Google
    Sheets, and SQL adapters for the same `SourceReaderPort`.
-2. 🟡 Clean and standardize the data — the **Cleaning Engine**'s architecture
-   is approved and every rule is specified in
-   [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) (68 rules, IDs
-   `CLN-001`–`CLN-068`); implementation has not started.
+2. ✅ Clean and standardize the data — the **Cleaning Engine**
+   (`application/cleaning/`), implementing all 68 rules specified in
+   [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) (`CLN-001`–`CLN-068`).
 3. Verify emails, phone numbers, LinkedIn profiles, and company information.
 4. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).
