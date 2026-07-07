@@ -1,0 +1,62 @@
+# ============================================================================
+# requirements.txt
+# ============================================================================
+# WHY THIS FILE EXISTS:
+# Python does not ship with every library we need built in. This file lists
+# every third-party package the *running application* depends on, pinned to
+# a version range, so that:
+#   - Any developer (or server) can recreate the exact same environment with:
+#         pip install -r requirements.txt
+#   - We don't accidentally break the app by silently upgrading a library.
+#
+# NOTE (foundation stage): none of this code is used yet — no business logic
+# has been written. These packages are listed now, grouped by the future
+# feature they will support, so the project structure and its dependencies
+# tell the same story. Installing them does not turn on any behavior.
+# ============================================================================
+
+# --- Web framework & server --------------------------------------------
+# FastAPI will expose the platform as an API (e.g. an "approve outreach
+# email" review step). Uvicorn is the server that runs a FastAPI app.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+
+# --- Configuration & data validation -------------------------------------
+# pydantic defines strict, self-validating data shapes (e.g. "an email field
+# must look like an email"). pydantic-settings reads configuration from
+# environment variables / .env files into a typed Python object.
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+python-dotenv>=1.0,<2.0
+
+# --- Database ------------------------------------------------------------
+# SQLAlchemy is the ORM (Object-Relational Mapper): it lets us describe
+# database tables as Python classes instead of writing raw SQL everywhere.
+# Alembic manages database schema migrations (versioned changes to tables).
+# psycopg2-binary is the driver that lets SQLAlchemy talk to PostgreSQL.
+sqlalchemy>=2.0,<3.0
+alembic>=1.13,<2.0
+psycopg2-binary>=2.9,<3.0
+
+# --- Excel import (future "import Excel files" feature) -------------------
+# pandas reads/cleans tabular data; openpyxl is the engine pandas uses to
+# actually read .xlsx files.
+pandas>=2.2,<3.0
+openpyxl>=3.1,<4.0
+
+# --- HTTP client (future verification & enrichment API calls) -------------
+# httpx will call external services: email/phone verification, LinkedIn
+# and company-data providers, funding-event lookups, etc.
+httpx>=0.27,<1.0
+
+# --- AI provider (future "generate personalized outreach" feature) --------
+anthropic>=0.39,<1.0
+
+# --- Outbound email sending (future "send emails" feature) -----------------
+# A thin, well-tested wrapper around Python's built-in smtplib/email modules.
+emails>=0.6,<1.0
+
+# --- Logging --------------------------------------------------------------
+# Nicer, more readable logs than Python's built-in logging module produces
+# out of the box.
+loguru>=0.7,<1.0

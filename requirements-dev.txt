@@ -1,0 +1,36 @@
+# ============================================================================
+# requirements-dev.txt
+# ============================================================================
+# WHY THIS FILE EXISTS (AND WHY IT'S SEPARATE FROM requirements.txt):
+# Tools in this file help US write and test code (testing, formatting,
+# linting). A production server running the finished app will NEVER need
+# them. Splitting them out keeps the production install small, fast, and
+# free of tools that could be misused if they ever ended up on a live server.
+#
+# Install both files together during development with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# ============================================================================
+-r requirements.txt
+
+# --- Testing --------------------------------------------------------------
+# pytest is the test runner. pytest-cov measures how much of the code is
+# actually exercised ("covered") by tests.
+pytest>=8.3,<9.0
+pytest-cov>=6.0,<7.0
+
+# --- Code formatting & linting ---------------------------------------------
+# black auto-formats code so every file follows the same style, ending
+# arguments about spacing/quotes forever. ruff is a very fast linter that
+# catches bugs and style issues (unused imports, undefined names, etc.).
+black>=24.10,<25.0
+ruff>=0.7,<1.0
+
+# --- Static type checking ---------------------------------------------
+# mypy checks that type hints are consistent (e.g. you never pass a string
+# where the code expects a number) without having to run the program.
+mypy>=1.13,<2.0
+
+# --- Git safety net ---------------------------------------------------
+# pre-commit runs quick checks (formatting, linting) automatically before
+# every git commit, catching mistakes before they ever reach the repo.
+pre-commit>=4.0,<5.0
