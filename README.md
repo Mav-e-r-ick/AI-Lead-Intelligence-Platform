@@ -31,17 +31,22 @@ messages, and send them after human review.
 > ordering, refresh policy, health tracking (a lightweight circuit
 > breaker), and a coordinator that runs every applicable provider and
 > combines their results — is also implemented (see
-> [`application/enrichment/README.md`](src/lead_intelligence/application/enrichment/README.md)).
-> No concrete provider exists yet — no web scraping, no external API calls,
-> no LinkedIn integration, no AI — every real source (Company Website,
-> Leadership Page, News, Public Web Search, CRM, D&B, LinkedIn, other
-> commercial APIs) is future work behind the same `EnrichmentProviderPort`.
-> No ORM models, concrete repositories, or tables exist yet, and Identity
-> Resolution's lineage redirects, rollback windows, and full reviewer
-> workflow are explicitly Version 2 — both deliberately deferred to future
-> tasks. Every other business feature (domain entities, verification,
-> inflection-point detection, AI generation, sending) is still an empty,
-> clearly-labeled placeholder waiting for future work.
+> [`application/enrichment/README.md`](src/lead_intelligence/application/enrichment/README.md)),
+> along with its first concrete provider, the **Company Website Provider
+> (Version 1)** — fetches a company's homepage, respects `robots.txt`,
+> discovers leadership/about/team pages, and extracts executive name,
+> title, biography, and contact info via DOM heuristics (no AI), with
+> retries, timeouts, and caching (see
+> [`infrastructure/enrichment/company_website/README.md`](src/lead_intelligence/infrastructure/enrichment/company_website/README.md)).
+> Every other real source (Leadership Page, News, Public Web Search, CRM,
+> D&B, LinkedIn, other commercial APIs) is future work behind the same
+> `EnrichmentProviderPort`. No ORM models, concrete repositories, or
+> tables exist yet, and Identity Resolution's lineage redirects, rollback
+> windows, and full reviewer workflow are explicitly Version 2 — both
+> deliberately deferred to future tasks. Every other business feature
+> (domain entities, verification, inflection-point detection, AI
+> generation, sending) is still an empty, clearly-labeled placeholder
+> waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -135,6 +140,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
 │       │   ├── importers/         # Import Engine — see importers/README.md
 │       │   │   └── excel/          # ExcelSourceReader, ExcelFileValidator, ExcelSheetSelector
+│       │   ├── enrichment/        # Enrichment providers — see enrichment/company_website/README.md
+│       │   │   └── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
 │       │       ├── phone_verification/
@@ -155,7 +162,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── cleaning/               # Cleaning Engine unit tests
     │   ├── persistence/            # Repository interfaces, Unit of Work, session factory, health check
     │   ├── identity_resolution/    # Identity Resolution Engine unit tests
-    │   └── enrichment/             # Enrichment Provider Framework unit tests
+    │   ├── enrichment/             # Enrichment Provider Framework unit tests
+    │   └── company_website/        # Company Website Provider unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -216,9 +224,15 @@ order the project brief lists them:
    (Version 1)** (`application/enrichment/`): `EnrichmentProviderPort`, a
    provider registry, priority ordering, refresh policy, health tracking,
    and a coordinator that runs every applicable provider and combines
-   their results. Not yet implemented: any concrete provider (Company
-   Website, Leadership Page, News, Public Web Search, CRM, D&B, LinkedIn,
-   other commercial APIs) — each is a future task behind the same port.
+   their results — plus its first concrete provider, the **Company
+   Website Provider (Version 1)**
+   (`infrastructure/enrichment/company_website/`): fetches a company's
+   homepage, respects `robots.txt`, discovers leadership/about/team
+   pages, and extracts executive name/title/biography/contact info via
+   DOM heuristics (no AI), with retries, timeouts, and caching. Not yet
+   implemented: every other concrete provider (Leadership Page, News,
+   Public Web Search, CRM, D&B, LinkedIn, other commercial APIs) — each is
+   a future task behind the same port.
 6. Verify emails, phone numbers, LinkedIn profiles, and company information.
 7. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).

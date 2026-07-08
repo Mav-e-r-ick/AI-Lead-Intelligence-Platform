@@ -86,6 +86,24 @@ sitting right next to the code it tests for easy navigation.
   considered, fail-safe handling of a raising provider, observation
   aggregation across providers, metrics accuracy, and determinism), and
   `test_use_case.py` (`EnrichSubjectUseCase`).
+- `unit/company_website/` covers the Company Website Provider:
+  `fixtures.py` (shared HTML snippets and an `httpx.MockTransport`-backed
+  client builder — no test here ever touches the real network),
+  `test_settings.py` (`CompanyWebsiteProviderSettings` validation),
+  `test_cache.py` (`InMemoryPageCache` TTL expiry), `test_page_discovery.py`
+  (leadership/about/team link detection, same-domain filtering, relative-
+  link resolution, keyword-strength ranking, deduplication), `test_extraction.py`
+  (name/title/biography/email/phone extraction, multiple people per page,
+  missing-field handling, mailto:/tel: vs. regex-fallback contact info,
+  innermost-container selection, deduplication), `test_provider.py`
+  (end-to-end `fetch()` behavior: missing-URL handling, robots.txt
+  allow/disallow at both the homepage and per-page level, all three
+  `EnrichmentStatus` outcomes, retry-then-succeed and retry-exhausted
+  behavior for 5xx/timeouts, no-retry on 4xx, cache reuse across repeated
+  fetches, bare-domain URL normalization, and the `max_leadership_pages`
+  cap), and `test_coordinator_integration.py` (proving this provider runs
+  correctly through the real `EnrichmentCoordinator`/`ProviderRegistry`,
+  not just in isolation).
 
 ## Running the tests
 ```bash

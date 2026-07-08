@@ -49,6 +49,12 @@ openpyxl>=3.1,<4.0
 # and company-data providers, funding-event lookups, etc.
 httpx>=0.27,<1.0
 
+# --- HTML parsing (Enrichment Providers, e.g. the Company Website provider) -
+# beautifulsoup4 parses fetched HTML pages to find candidate leadership/about
+# pages and extract executive name/title/bio/contact info, without needing
+# a full browser engine or any AI/LLM call.
+beautifulsoup4>=4.12,<5.0
+
 # --- AI provider (future "generate personalized outreach" feature) --------
 anthropic>=0.39,<1.0
 
