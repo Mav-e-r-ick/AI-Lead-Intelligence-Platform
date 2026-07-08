@@ -6,9 +6,10 @@ changes, promotions, funding events), generate AI-personalized outreach
 messages, and send them after human review.
 
 > **Status: Foundation + Import Engine + Cleaning Engine + Persistence
-> Infrastructure + Identity Resolution Engine (V1).** The project structure,
-> configuration, and wiring are in place. The **Import Engine** (reading
-> Excel files into plain, unmodified records — see
+> Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
+> Framework (V1).** The project structure, configuration, and wiring are in
+> place. The **Import Engine** (reading Excel files into plain, unmodified
+> records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
 > and the **Cleaning Engine** (68 rules, normalizing and flagging that data —
 > see [`docs/CLEANING_RULES.md`](docs/CLEANING_RULES.md) and
@@ -25,6 +26,16 @@ messages, and send them after human review.
 > confidence recomputation, per the approved Identity Resolution RFC — is
 > implemented as pure, deterministic application logic (see
 > [`application/identity_resolution/README.md`](src/lead_intelligence/application/identity_resolution/README.md)).
+> The **Enrichment Provider Framework (Version 1)** — the provider
+> interface, request/response shapes, a provider registry, priority
+> ordering, refresh policy, health tracking (a lightweight circuit
+> breaker), and a coordinator that runs every applicable provider and
+> combines their results — is also implemented (see
+> [`application/enrichment/README.md`](src/lead_intelligence/application/enrichment/README.md)).
+> No concrete provider exists yet — no web scraping, no external API calls,
+> no LinkedIn integration, no AI — every real source (Company Website,
+> Leadership Page, News, Public Web Search, CRM, D&B, LinkedIn, other
+> commercial APIs) is future work behind the same `EnrichmentProviderPort`.
 > No ORM models, concrete repositories, or tables exist yet, and Identity
 > Resolution's lineage redirects, rollback windows, and full reviewer
 > workflow are explicitly Version 2 — both deliberately deferred to future
@@ -62,7 +73,7 @@ cp .env.example .env
 docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
-#    Persistence/Identity Resolution unit tests).
+#    Persistence/Identity Resolution/Enrichment unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -108,16 +119,17 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Repository + Unit of Work *interfaces* (10 named + base classes)
-│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py
+│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
-│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py
+│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
-│       │   └── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
+│       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
+│       │   └── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -142,7 +154,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── importer/               # Import Engine unit tests
     │   ├── cleaning/               # Cleaning Engine unit tests
     │   ├── persistence/            # Repository interfaces, Unit of Work, session factory, health check
-    │   └── identity_resolution/    # Identity Resolution Engine unit tests
+    │   ├── identity_resolution/    # Identity Resolution Engine unit tests
+    │   └── enrichment/             # Enrichment Provider Framework unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -198,11 +211,19 @@ order the project brief lists them:
    identity, per the approved Identity Resolution RFC. Not yet
    implemented (Version 2): identity lineage redirects, merge rollback
    windows, and the full reviewer workflow.
-5. Verify emails, phone numbers, LinkedIn profiles, and company information.
-6. Detect professional inflection points (promotion, job change, resignation,
+5. ✅ Collect executive information from multiple sources without coupling
+   the platform to any one of them — the **Enrichment Provider Framework
+   (Version 1)** (`application/enrichment/`): `EnrichmentProviderPort`, a
+   provider registry, priority ordering, refresh policy, health tracking,
+   and a coordinator that runs every applicable provider and combines
+   their results. Not yet implemented: any concrete provider (Company
+   Website, Leadership Page, News, Public Web Search, CRM, D&B, LinkedIn,
+   other commercial APIs) — each is a future task behind the same port.
+6. Verify emails, phone numbers, LinkedIn profiles, and company information.
+7. Detect professional inflection points (promotion, job change, resignation,
    company funding, etc.).
-7. Generate AI-personalized outreach messages.
-8. Send emails after a human review step.
+8. Generate AI-personalized outreach messages.
+9. Send emails after a human review step.
 
 ## Handling sensitive data
 

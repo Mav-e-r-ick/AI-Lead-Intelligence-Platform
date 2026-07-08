@@ -26,11 +26,12 @@ survive every technology decision.
 | `entities/` | The core business "nouns" — e.g. a `Lead`, an `Executive`, a `Company`. An entity has an identity that persists over time (the same lead is still "the same lead" even after its phone number changes). |
 | `value_objects/` | Small, immutable concepts defined entirely by their value, not an identity — e.g. an `EmailAddress` or `PhoneNumber` type that knows what a *valid* email looks like. Two value objects with the same value are considered equal. |
 | `repositories/` | **Implemented** (interfaces only). Contracts describing how entities are saved/loaded — e.g. "an `ObservationRepository` must be able to `add` and `find_evidence`." The actual database code that implements these contracts lives in `infrastructure/database/`, not here. This split is what lets us swap PostgreSQL for another storage technology later without touching business rules. |
-| `exceptions/` | Custom error types that describe business-rule violations in plain language (e.g. `InvalidEmailFormatError`), instead of relying on generic Python errors. **Implemented:** `import_exceptions.py` (Import Engine, see `infrastructure/importers/README.md`), `cleaning_exceptions.py` (Cleaning Engine, see `application/cleaning/README.md`), `identity_resolution_exceptions.py` (Identity Resolution Engine, see `application/identity_resolution/README.md`). |
+| `exceptions/` | Custom error types that describe business-rule violations in plain language (e.g. `InvalidEmailFormatError`), instead of relying on generic Python errors. **Implemented:** `import_exceptions.py` (Import Engine, see `infrastructure/importers/README.md`), `cleaning_exceptions.py` (Cleaning Engine, see `application/cleaning/README.md`), `identity_resolution_exceptions.py` (Identity Resolution Engine, see `application/identity_resolution/README.md`), `enrichment_exceptions.py` (Enrichment Provider Framework, see `application/enrichment/README.md`). |
 
 ## Current status
-`exceptions/import_exceptions.py`, `exceptions/cleaning_exceptions.py`, and
-`exceptions/identity_resolution_exceptions.py` are implemented.
+`exceptions/import_exceptions.py`, `exceptions/cleaning_exceptions.py`,
+`exceptions/identity_resolution_exceptions.py`, and
+`exceptions/enrichment_exceptions.py` are implemented.
 `repositories/` is now implemented as well — see below. `entities/` and
 `value_objects/` remain empty on purpose — no business
 entities have been written yet, so the repository interfaces are generic

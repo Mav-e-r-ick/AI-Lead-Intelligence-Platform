@@ -71,6 +71,21 @@ sitting right next to the code it tests for easy navigation.
   using injected deterministic id/clock dependencies), `test_recomputation.py`
   (confidence band transitions as new evidence arrives), and
   `test_use_case.py` (`ResolveIdentityUseCase`).
+- `unit/enrichment/` covers the Enrichment Provider Framework:
+  `fixtures.py` (`FakeEnrichmentProvider`, a fully scripted in-memory
+  stand-in for the real providers this task deliberately does not
+  implement), `test_config.py` (`RefreshPolicy` staleness math,
+  `ProviderConfiguration`/`EnrichmentProfile` validation and fallback-to-
+  default behavior), `test_provider_health.py` (the pure health
+  transition functions and `ProviderHealthTracker`'s circuit-breaker
+  behavior — degraded vs. unhealthy thresholds, recovery on success),
+  `test_provider_registry.py` (duplicate-id rejection, subject-type
+  filtering), `test_coordinator.py` (priority ordering and tie-breaking,
+  disabled/unhealthy/not-yet-stale skipping with the correct
+  `SkipReason`, unsupported-subject-type providers never even being
+  considered, fail-safe handling of a raising provider, observation
+  aggregation across providers, metrics accuracy, and determinism), and
+  `test_use_case.py` (`EnrichSubjectUseCase`).
 
 ## Running the tests
 ```bash

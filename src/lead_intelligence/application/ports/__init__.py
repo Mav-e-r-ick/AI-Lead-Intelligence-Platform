@@ -2,9 +2,11 @@
 
 SourceReaderPort is implemented today by ExcelSourceReader.
 NormalizationRule/QualityCheckRule are implemented by every cleaning rule
-in application/cleaning/rules/. IdentityCandidatePort has no concrete
-implementation yet — tests use an in-memory fake; a real adapter backed by
-DigitalTwinRepository/CompanyRepository is future infrastructure work.
+in application/cleaning/rules/. IdentityCandidatePort and
+EnrichmentProviderPort have no concrete implementations yet — tests use
+in-memory fakes; real adapters (backed by DigitalTwinRepository/
+CompanyRepository, and by each future enrichment source respectively) are
+future infrastructure work.
 Future ports to be added: EmailVerifierPort, PhoneVerifierPort,
 LinkedInDataPort, AIMessageGeneratorPort, EmailSenderPort. Infrastructure
 code implements these interfaces, which is what lets a vendor be swapped
@@ -17,6 +19,9 @@ from lead_intelligence.application.ports.cleaning_rule_port import (
     RuleCategory,
     RuleMetadata,
     RuleStage,
+)
+from lead_intelligence.application.ports.enrichment_provider_port import (
+    EnrichmentProviderPort,
 )
 from lead_intelligence.application.ports.identity_candidate_port import (
     IdentityCandidatePort,
@@ -31,4 +36,5 @@ __all__ = [
     "RuleStage",
     "RuleCategory",
     "IdentityCandidatePort",
+    "EnrichmentProviderPort",
 ]
