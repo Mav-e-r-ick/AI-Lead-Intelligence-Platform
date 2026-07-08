@@ -64,6 +64,12 @@ data/processed/*
 !data/processed/.gitkeep
 !data/README.md
 
+# scripts/run_evaluation.py's CSV/JSON reports are generated from the same
+# real executive data as data/raw/ and carry the same PII risk -- never
+# committed, for the same reason.
+reports/*
+!reports/.gitkeep
+
 # --- IDE / editor ------------------------------------------------------
 .vscode/
 .idea/
