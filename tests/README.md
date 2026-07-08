@@ -154,6 +154,23 @@ sitting right next to the code it tests for easy navigation.
   timeout/connection error — and their retry behavior), and
   `test_coordinator_integration.py` (proving this provider runs correctly
   through the real `VerificationCoordinator`, not just in isolation).
+- `unit/google_search/` covers the Google Search enrichment provider:
+  `fixtures.py` (`httpx.MockTransport`-backed client builder and Google
+  Custom Search response-body builders — no test here ever touches the
+  real network), `test_settings.py` (`GoogleSearchProviderSettings`
+  validation and `from_env()`, including real `os.environ` via
+  `monkeypatch`), `test_query_builder.py` (placeholder substitution,
+  skipping templates whose value is missing, deduplication, and order
+  preservation), `test_extraction.py` (title/URL/snippet/publication-date/
+  domain extraction, missing-field handling, multiple items),
+  `test_cache.py` (`InMemorySearchResultCache` TTL expiry),
+  `test_provider.py` (end-to-end: missing-name handling, query generation
+  with/without a known company, `web_mention` observation mapping, all
+  three `EnrichmentStatus` outcomes, retry/timeout/rate-limit/client-error
+  behavior, and cache reuse across repeated queries), and
+  `test_coordinator_integration.py` (proving this provider runs correctly
+  through the real `EnrichmentCoordinator`/`ProviderRegistry`, not just in
+  isolation).
 
 ## Running the tests
 ```bash

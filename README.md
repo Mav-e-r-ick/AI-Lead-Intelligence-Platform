@@ -9,7 +9,8 @@ messages, and send them after human review.
 > Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
 > Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
-> Provider (V1).** The project structure, configuration, and wiring are in
+> Provider (V1) + Google Search Provider (V1).** The project structure,
+> configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -40,8 +41,17 @@ messages, and send them after human review.
 > title, biography, and contact info via DOM heuristics (no AI), with
 > retries, timeouts, and caching (see
 > [`infrastructure/enrichment/company_website/README.md`](src/lead_intelligence/infrastructure/enrichment/company_website/README.md)).
-> Every other real source (Leadership Page, News, Public Web Search, CRM,
-> D&B, LinkedIn, other commercial APIs) is future work behind the same
+> A second concrete provider, the **Google Search Provider (Version 1)** —
+> given an executive's name (plus company/title if known), generates a
+> configurable set of search queries (`"<name>" "<company>"`, `"<name>"
+> promotion`, `appointed`, `joins`, `resigned`, `leadership`), searches each
+> via the Google Custom Search JSON API, and converts every result into a
+> `web_mention` `ObservationCandidate` (title, URL, snippet, publication
+> date, source domain) — pure evidence gathering, no AI summarization, no
+> change detection — is also implemented (see
+> [`infrastructure/enrichment/google_search/README.md`](src/lead_intelligence/infrastructure/enrichment/google_search/README.md)).
+> Every other real source (Leadership Page, News, CRM, D&B, LinkedIn,
+> other commercial APIs) is future work behind the same
 > `EnrichmentProviderPort`. The **Executive Comparison Engine (Version 1)**
 > — compares an existing (cleaned) executive record against newly
 > collected `ObservationCandidate`s field by field (name, title, company,
@@ -117,7 +127,7 @@ docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
 #    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
-#    Verification/NeverBounce unit tests).
+#    Verification/NeverBounce/GoogleSearch unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -183,7 +193,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── importers/         # Import Engine — see importers/README.md
 │       │   │   └── excel/          # ExcelSourceReader, ExcelFileValidator, ExcelSheetSelector
 │       │   ├── enrichment/        # Enrichment providers — see enrichment/company_website/README.md
-│       │   │   └── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
+│       │   │   ├── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
+│       │   │   └── google_search/   # GoogleSearchProvider (V1) — configurable queries, retry/timeout/cache, web_mention observations
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
 │       │       │   └── neverbounce/  # NeverBounceEmailProvider (V1) — retry/timeout, full result mapping
@@ -210,7 +221,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── comparison/             # Executive Comparison Engine unit tests
     │   ├── inflection/             # Inflection Detection Engine unit tests
     │   ├── verification/           # Contact Verification Framework unit tests
-    │   └── neverbounce/            # NeverBounce email provider unit tests
+    │   ├── neverbounce/            # NeverBounce email provider unit tests
+    │   └── google_search/          # Google Search provider unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -271,15 +283,21 @@ order the project brief lists them:
    (Version 1)** (`application/enrichment/`): `EnrichmentProviderPort`, a
    provider registry, priority ordering, refresh policy, health tracking,
    and a coordinator that runs every applicable provider and combines
-   their results — plus its first concrete provider, the **Company
-   Website Provider (Version 1)**
-   (`infrastructure/enrichment/company_website/`): fetches a company's
-   homepage, respects `robots.txt`, discovers leadership/about/team
-   pages, and extracts executive name/title/biography/contact info via
-   DOM heuristics (no AI), with retries, timeouts, and caching. Not yet
-   implemented: every other concrete provider (Leadership Page, News,
-   Public Web Search, CRM, D&B, LinkedIn, other commercial APIs) — each is
-   a future task behind the same port.
+   their results — plus two concrete providers: the **Company Website
+   Provider (Version 1)** (`infrastructure/enrichment/company_website/`):
+   fetches a company's homepage, respects `robots.txt`, discovers
+   leadership/about/team pages, and extracts executive name/title/
+   biography/contact info via DOM heuristics (no AI), with retries,
+   timeouts, and caching; and the **Google Search Provider (Version 1)**
+   (`infrastructure/enrichment/google_search/`): generates configurable
+   search queries for an executive (name+company, promotion, appointed,
+   joins, resigned, leadership), searches each via the Google Custom
+   Search JSON API, and converts every result into a `web_mention`
+   `ObservationCandidate` (title, URL, snippet, publication date, source
+   domain) — pure evidence gathering, with retries, timeouts, and caching,
+   no AI summarization or change detection. Not yet implemented: every
+   other concrete provider (Leadership Page, News, CRM, D&B, LinkedIn,
+   other commercial APIs) — each is a future task behind the same port.
 6. ✅ Identify differences between existing records and newly collected
    information — the **Executive Comparison Engine (Version 1)**
    (`application/comparison/`): compares name, title, company, email, and
