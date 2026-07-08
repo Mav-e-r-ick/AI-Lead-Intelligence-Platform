@@ -13,5 +13,7 @@ are meant to be *run directly* (`python scripts/some_script.py`) and are
 one-off tools, not part of the importable application.
 
 ## Current status
-Empty on purpose — no scripts have been needed yet. This is foundation
-only.
+
+| Script | Purpose |
+|---|---|
+| `run_evaluation.py` | Runs the Evaluation & Validation module's `PipelineRunner` against a real Excel file: wires the real Import Engine, Cleaning Engine, and Executive Processing Pipeline (with the Company Website and, if configured, Google Search enrichment providers, and NeverBounce email verification if configured), then writes a CSV executive report and a JSON processing summary. See `application/evaluation/README.md`. Usage: `python scripts/run_evaluation.py path/to/executives.xlsx --output-dir reports`. |

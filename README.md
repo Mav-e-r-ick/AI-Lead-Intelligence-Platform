@@ -10,7 +10,7 @@ messages, and send them after human review.
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
 > Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
 > Provider (V1) + Google Search Provider (V1) + Executive Processing
-> Pipeline (V1).** The project structure, configuration, and wiring are in
+> Pipeline (V1) + Evaluation & Validation Module (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -103,12 +103,25 @@ messages, and send them after human review.
 > implemented (see
 > [`application/executive_pipeline/README.md`](src/lead_intelligence/application/executive_pipeline/README.md)).
 > No new provider and no change to any existing engine or framework — pure
-> orchestration. No ORM models, concrete repositories, or tables exist
-> yet, and Identity Resolution's lineage redirects, rollback windows, and
-> full reviewer workflow are explicitly Version 2 — both deliberately
-> deferred to future tasks. Every other business feature (domain entities,
-> phone verification, AI generation, sending) is still an empty,
-> clearly-labeled placeholder waiting for future work.
+> orchestration. The **Evaluation & Validation Module (Version 1)** — a
+> `PipelineRunner` (`application/evaluation/`) that runs every executive in
+> a real Excel file through the Executive Processing Pipeline unchanged,
+> and produces a CSV report (one row per executive: name, company, website
+> searched, providers executed, results found per provider, comparison
+> summary, detected inflections, verification status, processing duration,
+> errors) plus a JSON summary of platform-wide metrics (success rate,
+> failed searches, company websites found, Google searches completed,
+> promotions/company-changes/missing-executives detected, verification
+> success rate) — is also implemented (see
+> [`application/evaluation/README.md`](src/lead_intelligence/application/evaluation/README.md)).
+> No new provider, no AI, no automation, no redesign of any existing
+> module — pure measurement of the platform as it exists today. No ORM
+> models, concrete repositories, or tables exist yet, and Identity
+> Resolution's lineage redirects, rollback windows, and full reviewer
+> workflow are explicitly Version 2 — both deliberately deferred to future
+> tasks. Every other business feature (domain entities, phone
+> verification, AI generation, sending) is still an empty, clearly-labeled
+> placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -141,8 +154,8 @@ docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
 #    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
-#    Verification/NeverBounce/GoogleSearch/ExecutiveProcessingPipeline
-#    unit + integration tests).
+#    Verification/NeverBounce/GoogleSearch/ExecutiveProcessingPipeline/
+#    Evaluation unit + integration tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -176,7 +189,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │   └── processed/               # Cleaned output (gitignored contents)
 ├── logs/                        # Local log file output (gitignored contents)
 ├── scripts/
-│   └── README.md                # Explains the purpose of this folder (currently empty)
+│   ├── README.md                # Explains the purpose of this folder
+│   └── run_evaluation.py        # CLI: runs the Evaluation & Validation module's PipelineRunner on a real Excel file
 ├── src/
 │   └── lead_intelligence/       # The installable application package
 │       ├── __init__.py
@@ -194,7 +208,7 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py, verify_contact.py, process_executive.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
 │       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py, verification_provider_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py, verification_models.py, executive_pipeline_models.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py, verification_models.py, executive_pipeline_models.py, evaluation_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
 │       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
@@ -202,7 +216,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
 │       │   ├── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
 │       │   ├── verification/      # Contact Verification Framework (V1) — see verification/README.md
-│       │   └── executive_pipeline/ # Executive Processing Pipeline (V1) — see executive_pipeline/README.md
+│       │   ├── executive_pipeline/ # Executive Processing Pipeline (V1) — see executive_pipeline/README.md
+│       │   └── evaluation/        # Evaluation & Validation Module (V1) — see evaluation/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -239,7 +254,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── verification/           # Contact Verification Framework unit tests
     │   ├── neverbounce/            # NeverBounce email provider unit tests
     │   ├── google_search/          # Google Search provider unit tests
-    │   └── executive_pipeline/     # Executive Processing Pipeline unit tests
+    │   ├── executive_pipeline/     # Executive Processing Pipeline unit tests
+    │   └── evaluation/             # Evaluation & Validation Module unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   ├── test_health.py          # Proves the foundation runs and the database is reachable
     │   └── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
@@ -368,8 +384,20 @@ order the project brief lists them:
    stage has its own error handling, so one stage's failure never
    discards another's results. No new provider, no AI, no messaging, no
    automation, and no change to any existing engine or framework.
-10. Generate AI-personalized outreach messages.
-11. Send emails after a human review step.
+10. ✅ Measure how well the platform performs on real data — the
+    **Evaluation & Validation Module (Version 1)** (`application/evaluation/`):
+    a `PipelineRunner` that imports, cleans, and runs every executive in a
+    real Excel file through the unmodified Executive Processing Pipeline,
+    producing a CSV report (one row per executive, including providers
+    executed, results found per provider, comparison summary, detected
+    inflections, verification status, processing duration, and errors)
+    and a JSON summary of platform-wide metrics (success rate, failed
+    searches, company websites found, Google searches completed,
+    promotions/company-changes/missing-executives detected, verification
+    success rate). No new provider, no AI, no automation, no redesign of
+    any existing module — pure measurement.
+11. Generate AI-personalized outreach messages.
+12. Send emails after a human review step.
 
 ## Handling sensitive data
 

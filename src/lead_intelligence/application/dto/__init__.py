@@ -32,6 +32,11 @@ from lead_intelligence.application.dto.enrichment_models import (
     ProviderSkip,
     SkipReason,
 )
+from lead_intelligence.application.dto.evaluation_models import (
+    EvaluationRun,
+    EvaluationSummary,
+    ExecutiveEvaluationRow,
+)
 from lead_intelligence.application.dto.executive_pipeline_models import (
     ExecutiveProcessingReport,
     ExecutiveProcessingStatus,
@@ -140,4 +145,7 @@ __all__ = [
     "VerificationReport",
     "ExecutiveProcessingStatus",
     "ExecutiveProcessingReport",
+    "ExecutiveEvaluationRow",
+    "EvaluationSummary",
+    "EvaluationRun",
 ]

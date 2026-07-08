@@ -189,6 +189,25 @@ sitting right next to the code it tests for easy navigation.
   `NeverBounceEmailProvider` (each HTTP-mocked via `httpx.MockTransport`,
   never a real network call), with no fakes standing in for any of the
   orchestrator's own collaborators.
+- `unit/evaluation/` covers the Evaluation & Validation module:
+  `fixtures.py` (`make_report`/`make_inflection_report`/`make_verification_report`
+  builders for `ExecutiveProcessingReport` and its embedded stage results),
+  `test_row_builder.py` (subject_id/executive_name passthrough,
+  company/website resolution, per-provider result counts,
+  `providers_executed` joining, comparison-summary formatting,
+  inflections-detected formatting, all four verification-status branches,
+  and stage-error joining), `test_metrics.py` (success rate, the
+  "technical failure" definition of failed searches, the "found" vs.
+  "completed" distinction for company-website/Google metrics, every
+  inflection-type count, and verification success rate excluding
+  non-attempts from its denominator), `test_export.py` (CSV header/row
+  round-tripping, `None`-to-blank-string conversion, parent-directory
+  creation, and the JSON summary report's structure), and `test_runner.py`
+  (`PipelineRunner` against a real Import Engine + Cleaning Engine over a
+  tiny in-memory workbook and a fake `ProcessExecutiveUseCase` — every
+  record processed, subject_id derived from the Excel row number,
+  summary/source-description correctness, and per-record fail-safe
+  handling of an unexpected exception).
 
 ## Running the tests
 ```bash
