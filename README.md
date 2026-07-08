@@ -10,7 +10,8 @@ messages, and send them after human review.
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
 > Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
 > Provider (V1) + Google Search Provider (V1) + Executive Processing
-> Pipeline (V1) + Evaluation & Validation Module (V1).** The project structure, configuration, and wiring are in
+> Pipeline (V1) + Evaluation & Validation Module (V1) + Search Layer (V1)
+> + Browser Search Provider (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -115,7 +116,27 @@ messages, and send them after human review.
 > success rate) — is also implemented (see
 > [`application/evaluation/README.md`](src/lead_intelligence/application/evaluation/README.md)).
 > No new provider, no AI, no automation, no redesign of any existing
-> module — pure measurement of the platform as it exists today. No ORM
+> module — pure measurement of the platform as it exists today. The
+> **Search Layer (Version 1)**, per the approved Search Layer RFC —
+> `SearchProviderPort`, `SearchResult`/`SearchRequest`/`SearchResponse`
+> (`application/dto/search_models.py`), and a `SearchCoordinator` +
+> `SearchProviderRegistry` (`application/search/`) mirroring the
+> Enrichment Provider Framework's own registry/priority/health-tracking
+> pattern — separates *searching* (returning only title/url/snippet/
+> source/rank) from *extracting* (turning a page into evidence), so a
+> search provider can never return an observation. Its first concrete
+> provider, **Browser Search (Version 1)** — `BrowserSearchProvider`
+> (`infrastructure/search/browser/`), which drives a real, headless
+> browser (Playwright) against an operator-configured search-results page,
+> collects the first N result URLs per query, respects that search
+> engine's own `robots.txt`, and retries/caches/logs — is also implemented
+> (see [`application/search/README.md`](src/lead_intelligence/application/search/README.md)
+> and [`infrastructure/search/browser/README.md`](src/lead_intelligence/infrastructure/search/browser/README.md)).
+> No AI, no new business logic, no built-in default search engine (the
+> operator must supply and be authorized to use their own target). Not
+> yet wired into the Executive Processing Pipeline — a deliberate,
+> separate follow-up, the same sequencing this platform already followed
+> for Company Website and Google Search themselves. No ORM
 > models, concrete repositories, or tables exist yet, and Identity
 > Resolution's lineage redirects, rollback windows, and full reviewer
 > workflow are explicitly Version 2 — both deliberately deferred to future
@@ -155,7 +176,9 @@ docker-compose up -d postgres
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
 #    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
 #    Verification/NeverBounce/GoogleSearch/ExecutiveProcessingPipeline/
-#    Evaluation unit + integration tests).
+#    Evaluation/Search/BrowserSearch unit + integration tests). The real
+#    Playwright end-to-end test is opt-in and skipped by default (see
+#    infrastructure/search/browser/README.md).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -217,7 +240,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
 │       │   ├── verification/      # Contact Verification Framework (V1) — see verification/README.md
 │       │   ├── executive_pipeline/ # Executive Processing Pipeline (V1) — see executive_pipeline/README.md
-│       │   └── evaluation/        # Evaluation & Validation Module (V1) — see evaluation/README.md
+│       │   ├── evaluation/        # Evaluation & Validation Module (V1) — see evaluation/README.md
+│       │   └── search/            # Search Layer (V1) — see search/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -226,6 +250,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── enrichment/        # Enrichment providers — see enrichment/company_website/README.md
 │       │   │   ├── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
 │       │   │   └── google_search/   # GoogleSearchProvider (V1) — configurable queries, retry/timeout/cache, web_mention observations
+│       │   ├── search/            # Search providers — see search/browser/README.md
+│       │   │   └── browser/         # BrowserSearchProvider (V1) — Playwright, configurable engine/selectors, robots.txt, retry/timeout/cache
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
 │       │       │   └── neverbounce/  # NeverBounceEmailProvider (V1) — retry/timeout, full result mapping
@@ -255,10 +281,13 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── neverbounce/            # NeverBounce email provider unit tests
     │   ├── google_search/          # Google Search provider unit tests
     │   ├── executive_pipeline/     # Executive Processing Pipeline unit tests
-    │   └── evaluation/             # Evaluation & Validation Module unit tests
+    │   ├── evaluation/             # Evaluation & Validation Module unit tests
+    │   ├── search/                 # Search Layer framework unit tests
+    │   └── browser_search/         # BrowserSearchProvider unit tests (mocked Playwright)
     ├── integration/               # Tests spanning multiple pieces
     │   ├── test_health.py          # Proves the foundation runs and the database is reachable
-    │   └── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
+    │   ├── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
+    │   └── test_browser_search_e2e.py # Real Playwright + local HTTP server (opt-in, RUN_BROWSER_SEARCH_E2E=1)
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
 ```
 
@@ -396,8 +425,28 @@ order the project brief lists them:
     promotions/company-changes/missing-executives detected, verification
     success rate). No new provider, no AI, no automation, no redesign of
     any existing module — pure measurement.
-11. Generate AI-personalized outreach messages.
-12. Send emails after a human review step.
+11. ✅ Separate searching from extracting, and add a second, credential-free
+    way to gather public web evidence — the **Search Layer (Version 1)**,
+    per the approved Search Layer RFC (`application/search/`,
+    `application/ports/search_provider_port.py`,
+    `application/dto/search_models.py`): a `SearchProviderPort` that
+    returns only `SearchResult`s (title/url/snippet/source/rank), and a
+    `SearchCoordinator`/`SearchProviderRegistry` mirroring the Enrichment
+    Provider Framework's own registry/priority/health-tracking pattern —
+    structurally incapable of returning an observation. Its first
+    concrete provider, **Browser Search (Version 1)**
+    (`infrastructure/search/browser/`): `BrowserSearchProvider` drives a
+    real, headless browser (Playwright) against an operator-configured
+    search-results page, builds configurable queries (reusing Google
+    Search's own query-template engine), collects the first N result URLs
+    per query, respects that search engine's own `robots.txt`, and
+    retries/caches/logs. No built-in default search engine — the operator
+    supplies and must be authorized to use their own target. No AI, no
+    new business logic, no observation extraction, no page-fetching
+    beyond the search engine's own results page. Not yet wired into the
+    Executive Processing Pipeline — a deliberate, separate follow-up.
+12. Generate AI-personalized outreach messages.
+13. Send emails after a human review step.
 
 ## Handling sensitive data
 

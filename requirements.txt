@@ -55,6 +55,14 @@ httpx>=0.27,<1.0
 # a full browser engine or any AI/LLM call.
 beautifulsoup4>=4.12,<5.0
 
+# --- Headless browser automation (Search Layer, BrowserSearchProvider) -----
+# Drives a real, headless Chromium instance to search a configured search
+# engine's own results page and collect result URLs, for search engines
+# with no published API. Run `playwright install chromium` once after
+# installing this package (not needed if a pre-installed Chromium is
+# pointed to via BrowserSearchProviderSettings.executable_path).
+playwright>=1.47,<2.0
+
 # --- AI provider (future "generate personalized outreach" feature) --------
 anthropic>=0.39,<1.0
 

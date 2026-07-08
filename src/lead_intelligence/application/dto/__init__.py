@@ -72,6 +72,13 @@ from lead_intelligence.application.dto.models import (
     RawRecord,
     SourceMetadata,
 )
+from lead_intelligence.application.dto.search_models import (
+    SearchCoordinationMetrics,
+    SearchCoordinationResult,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
+)
 from lead_intelligence.application.dto.verification_models import (
     ContactType,
     VerificationCoordinationMetrics,
@@ -148,4 +155,9 @@ __all__ = [
     "ExecutiveEvaluationRow",
     "EvaluationSummary",
     "EvaluationRun",
+    "SearchResult",
+    "SearchRequest",
+    "SearchResponse",
+    "SearchCoordinationMetrics",
+    "SearchCoordinationResult",
 ]

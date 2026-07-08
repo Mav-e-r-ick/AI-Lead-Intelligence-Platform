@@ -33,6 +33,9 @@ nothing in `domain/`, ever needs to change.
 | `enrichment/company_website/` | **Implemented.** `CompanyWebsiteProvider` — fetches a company's website, respects `robots.txt`, finds its leadership/about/team page(s), and extracts publicly listed executives via DOM heuristics (no AI). |
 | `enrichment/google_search/` | **Implemented.** `GoogleSearchProvider` — searches the public web for an executive via the Google Custom Search JSON API, generating configurable queries and converting every result into a `web_mention` `ObservationCandidate` (evidence only — no AI summarization, no change detection). |
 | `enrichment/leadership_page/`, `enrichment/news/`, `enrichment/crm/`, `enrichment/dnb/`, `enrichment/linkedin/` | Future sibling providers, implementing the same port — not built yet. |
+| `search/` | Adapters that implement `application/ports/search_provider_port.py` — the Search Layer's provider family (sibling to, and deliberately separate from, `enrichment/`). See `application/search/README.md` for why. |
+| `search/browser/` | **Implemented.** `BrowserSearchProvider` — drives a real, headless browser (Playwright) against a configured search-results page and returns `SearchResult`s only (no observation extraction). See `search/browser/README.md`. |
+| `search/bing/`, `search/brave/`, `search/serpapi/`, `search/tavily/`, `search/searchapi/`, `search/exa/` | Future sibling search providers, implementing the same port — not built yet. |
 | `external_services/email_verification/` | Adapters that implement `application/ports/verification_provider_port.py`'s `EmailVerificationPort` — one sub-folder per vendor, same convention as `enrichment/`. See `email_verification/neverbounce/README.md`. |
 | `external_services/email_verification/neverbounce/` | **Implemented.** `NeverBounceEmailProvider` — verifies email addresses via NeverBounce's v4 single-check API, with retry/timeout handling and full result mapping (valid/invalid/disposable/catch-all/unknown/rate-limited/timeout/API error). |
 | `external_services/email_verification/zerobounce/`, `.../kickbox/`, `.../bouncer/` | Future sibling providers, implementing the same port — not built yet. |
@@ -46,14 +49,15 @@ nothing in `domain/`, ever needs to change.
 The Excel Import Engine (`importers/excel/`), the `database/` package
 (engine/session, Unit of Work, health check — see the table above), the
 Company Website and Google Search enrichment providers
-(`enrichment/company_website/`, `enrichment/google_search/`), and the
-NeverBounce email verification provider
+(`enrichment/company_website/`, `enrichment/google_search/`), the
+Browser Search provider (`search/browser/`), and the NeverBounce email
+verification provider
 (`external_services/email_verification/neverbounce/`) are implemented.
-Every other `enrichment/` and `external_services/` folder here is still
-empty on purpose; no other vendor integrations exist yet. These folders
-exist so each future integration has one obvious, isolated home, and so
-that no external SDK ever needs to be imported from `domain/` or
-`application/`.
+Every other `enrichment/`, `search/`, and `external_services/` folder
+here is still empty on purpose; no other vendor integrations exist yet.
+These folders exist so each future integration has one obvious, isolated
+home, and so that no external SDK ever needs to be imported from
+`domain/` or `application/`.
 
 ### `database/` — configuration
 

@@ -208,6 +208,42 @@ sitting right next to the code it tests for easy navigation.
   record processed, subject_id derived from the Excel row number,
   summary/source-description correctness, and per-record fail-safe
   handling of an unexpected exception).
+- `unit/search/` covers the Search Layer framework: `fixtures.py`
+  (`FakeSearchProvider`, an in-memory stand-in for the real providers),
+  `test_config.py` (`SearchProfile`/`SearchProviderConfiguration`
+  validation and fallback-to-default behavior), `test_provider_registry.py`
+  (duplicate-id rejection, subject-type filtering), and
+  `test_coordinator.py` (priority ordering and tie-breaking,
+  disabled/unhealthy skipping with the correct `SkipReason`,
+  unsupported-subject-type providers never even being considered,
+  fail-safe handling of a raising provider, result aggregation across
+  providers, metrics accuracy, and determinism) — the same coverage shape
+  as `unit/enrichment/`, minus the refresh-policy/staleness cases that
+  don't apply to Search (see `application/search/README.md` for why).
+- `unit/browser_search/` covers `BrowserSearchProvider`: `fixtures.py`
+  (`FakeBrowser`/`FakePage`/`FakeElement` — an in-memory stand-in for
+  Playwright, and a mocked-httpx-transport builder for the robots.txt
+  check — no test here ever launches a real browser or touches the real
+  network), `test_settings.py` (`BrowserSearchProviderSettings`
+  validation and `from_env()`), `test_cache.py` (TTL expiry),
+  `test_extraction.py` (title/URL/snippet/rank extraction, relative-URL
+  resolution against the page's own URL, missing-field skipping, and the
+  `max_results` first-N-*successful*-results semantics), and
+  `test_provider.py` (end-to-end `search()` behavior: missing-name
+  handling, successful multi-query search, every opened page being
+  closed, caching across repeated searches, retry-then-succeed and
+  retry-exhausted behavior, partial-success status, robots.txt
+  allow/disallow/missing handling, robots.txt fetched only once per
+  provider instance, and `close()`).
+- `integration/test_browser_search_e2e.py` is a real, non-mocked
+  end-to-end test: a real headless Chromium (via Playwright) against a
+  real local HTTP server (Python's own `http.server`, never a live
+  third-party site). Skipped by default (every other test in this
+  repository is fast and network-free); opt in with
+  `RUN_BROWSER_SEARCH_E2E=1` — see
+  `infrastructure/search/browser/README.md` for exact instructions,
+  including the `BROWSER_SEARCH_EXECUTABLE_PATH` override some
+  environments need.
 
 ## Running the tests
 ```bash

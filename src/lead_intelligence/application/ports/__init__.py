@@ -27,6 +27,7 @@ from lead_intelligence.application.ports.enrichment_provider_port import (
 from lead_intelligence.application.ports.identity_candidate_port import (
     IdentityCandidatePort,
 )
+from lead_intelligence.application.ports.search_provider_port import SearchProviderPort
 from lead_intelligence.application.ports.source_reader_port import SourceReaderPort
 from lead_intelligence.application.ports.verification_provider_port import (
     EmailVerificationPort,
@@ -43,6 +44,7 @@ __all__ = [
     "RuleCategory",
     "IdentityCandidatePort",
     "EnrichmentProviderPort",
+    "SearchProviderPort",
     "VerificationProviderPort",
     "EmailVerificationPort",
     "PhoneVerificationPort",
