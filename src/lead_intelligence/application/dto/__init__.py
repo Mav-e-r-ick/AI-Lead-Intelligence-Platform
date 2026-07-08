@@ -32,6 +32,11 @@ from lead_intelligence.application.dto.enrichment_models import (
     ProviderSkip,
     SkipReason,
 )
+from lead_intelligence.application.dto.inflection_models import (
+    Inflection,
+    InflectionReport,
+    InflectionType,
+)
 from lead_intelligence.application.dto.identity_resolution_models import (
     ConfidenceBand,
     ConfidenceScore,
@@ -108,4 +113,7 @@ __all__ = [
     "FieldComparison",
     "ComparisonSummary",
     "ComparisonResult",
+    "InflectionType",
+    "Inflection",
+    "InflectionReport",
 ]

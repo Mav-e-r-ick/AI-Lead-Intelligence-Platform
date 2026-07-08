@@ -26,6 +26,11 @@ from lead_intelligence.domain.exceptions.import_exceptions import (
     SourceNotFoundError,
     UnsupportedSourceFormatError,
 )
+from lead_intelligence.domain.exceptions.inflection_exceptions import (
+    DuplicateInflectionRuleError,
+    InvalidInflectionConfigurationError,
+    LeadInflectionError,
+)
 
 __all__ = [
     "LeadImportError",
@@ -44,4 +49,7 @@ __all__ = [
     "DuplicateProviderError",
     "LeadComparisonError",
     "InvalidComparisonConfigurationError",
+    "LeadInflectionError",
+    "InvalidInflectionConfigurationError",
+    "DuplicateInflectionRuleError",
 ]

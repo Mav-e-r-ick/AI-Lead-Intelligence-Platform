@@ -116,6 +116,19 @@ sitting right next to the code it tests for easy navigation.
   genuinely distinct values, summary/confidence arithmetic, field
   ordering, and determinism), and `test_use_case.py`
   (`CompareExecutiveUseCase`).
+- `unit/inflection/` covers the Inflection Detection Engine:
+  `fixtures.py` (`FieldComparison`/`ComparisonResult` builders),
+  `test_seniority.py` (keyword-based title seniority ranking, including
+  the longest-match-wins tie-break), `test_rule_base.py`
+  (`get_field_comparison` helper), `test_registry.py`
+  (`InflectionRuleRegistry` duplicate-`rule_id` guarding), `test_config.py`
+  (`InflectionProfile` enable/disable and confidence overrides, validation
+  of out-of-range overrides), `test_rules.py` (fire/no-fire coverage for
+  all seven rules, including the Possible-Resignation/
+  Executive-No-Longer-Found mutual exclusivity), `test_engine.py`
+  (end-to-end confidence arithmetic and clamping, disabled rules, multiple
+  simultaneous inflections, determinism), and `test_use_case.py`
+  (`DetectInflectionsUseCase`).
 
 ## Running the tests
 ```bash

@@ -7,7 +7,8 @@ messages, and send them after human review.
 
 > **Status: Foundation + Import Engine + Cleaning Engine + Persistence
 > Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
-> Framework (V1).** The project structure, configuration, and wiring are in
+> Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
+> Engine (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -49,13 +50,22 @@ messages, and send them after human review.
 > implemented (see
 > [`application/comparison/README.md`](src/lead_intelligence/application/comparison/README.md)).
 > It only identifies differences; it never classifies what a difference
-> means (no promotion/resignation/inflection detection). No ORM models,
-> concrete repositories, or tables exist yet, and Identity Resolution's
-> lineage redirects, rollback windows, and full reviewer workflow are
-> explicitly Version 2 — both deliberately deferred to future tasks. Every
-> other business feature (domain entities, verification, inflection-point
-> detection, AI generation, sending) is still an empty, clearly-labeled
-> placeholder waiting for future work.
+> means (no promotion/resignation/inflection detection) — that
+> interpretation is the **Inflection Detection Engine (Version 1)**'s job:
+> it converts a `ComparisonResult` into deterministic, explainable business
+> events (Promotion, Demotion, Company Change, Possible Resignation,
+> Contact Information Changed, Executive Newly Appeared, Executive No
+> Longer Found), each with a confidence score, supporting evidence, and a
+> human-readable explanation, via seven fixed detection rules plus a
+> keyword-based title seniority ranking — no AI, no search, no
+> verification (see
+> [`application/inflection/README.md`](src/lead_intelligence/application/inflection/README.md)).
+> No ORM models, concrete repositories, or tables exist yet, and Identity
+> Resolution's lineage redirects, rollback windows, and full reviewer
+> workflow are explicitly Version 2 — both deliberately deferred to future
+> tasks. Every other business feature (domain entities, verification, AI
+> generation, sending) is still an empty, clearly-labeled placeholder
+> waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -87,7 +97,8 @@ cp .env.example .env
 docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
-#    Persistence/Identity Resolution/Enrichment/Comparison unit tests).
+#    Persistence/Identity Resolution/Enrichment/Comparison/Inflection
+#    unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -133,18 +144,19 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Repository + Unit of Work *interfaces* (10 named + base classes)
-│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py
+│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py, comparison_exceptions.py, inflection_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
 │       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
 │       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
 │       │   ├── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
-│       │   └── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
+│       │   ├── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
+│       │   └── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -174,7 +186,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── identity_resolution/    # Identity Resolution Engine unit tests
     │   ├── enrichment/             # Enrichment Provider Framework unit tests
     │   ├── company_website/        # Company Website Provider unit tests
-    │   └── comparison/             # Executive Comparison Engine unit tests
+    │   ├── comparison/             # Executive Comparison Engine unit tests
+    │   └── inflection/             # Inflection Detection Engine unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -254,9 +267,17 @@ order the project brief lists them:
    summary with a deterministic confidence score. Deliberately does not
    classify what a difference means — no promotion/resignation/inflection
    detection, no AI, no verification.
-7. Verify emails, phone numbers, LinkedIn profiles, and company information.
-8. Detect professional inflection points (promotion, job change, resignation,
-   company funding, etc.) — building on the Comparison Engine's output.
+7. ✅ Convert technical differences into business events — the
+   **Inflection Detection Engine (Version 1)** (`application/inflection/`):
+   seven fixed, deterministic rules over a `ComparisonResult` detect
+   Promotion, Demotion, Company Change, Possible Resignation, Contact
+   Information Changed, Executive Newly Appeared, and Executive No Longer
+   Found, each with a confidence score (the rule's own reliability
+   discounted by the comparison's own confidence), supporting evidence,
+   and a human-readable explanation. Title-change direction (promotion vs.
+   demotion) uses a keyword-based seniority ranking, not AI. No AI, no
+   search, no verification, no outreach messaging.
+8. Verify emails, phone numbers, LinkedIn profiles, and company information.
 9. Generate AI-personalized outreach messages.
 10. Send emails after a human review step.
 

@@ -26,13 +26,14 @@ survive every technology decision.
 | `entities/` | The core business "nouns" — e.g. a `Lead`, an `Executive`, a `Company`. An entity has an identity that persists over time (the same lead is still "the same lead" even after its phone number changes). |
 | `value_objects/` | Small, immutable concepts defined entirely by their value, not an identity — e.g. an `EmailAddress` or `PhoneNumber` type that knows what a *valid* email looks like. Two value objects with the same value are considered equal. |
 | `repositories/` | **Implemented** (interfaces only). Contracts describing how entities are saved/loaded — e.g. "an `ObservationRepository` must be able to `add` and `find_evidence`." The actual database code that implements these contracts lives in `infrastructure/database/`, not here. This split is what lets us swap PostgreSQL for another storage technology later without touching business rules. |
-| `exceptions/` | Custom error types that describe business-rule violations in plain language (e.g. `InvalidEmailFormatError`), instead of relying on generic Python errors. **Implemented:** `import_exceptions.py` (Import Engine, see `infrastructure/importers/README.md`), `cleaning_exceptions.py` (Cleaning Engine, see `application/cleaning/README.md`), `identity_resolution_exceptions.py` (Identity Resolution Engine, see `application/identity_resolution/README.md`), `enrichment_exceptions.py` (Enrichment Provider Framework, see `application/enrichment/README.md`), `comparison_exceptions.py` (Executive Comparison Engine, see `application/comparison/README.md`). |
+| `exceptions/` | Custom error types that describe business-rule violations in plain language (e.g. `InvalidEmailFormatError`), instead of relying on generic Python errors. **Implemented:** `import_exceptions.py` (Import Engine, see `infrastructure/importers/README.md`), `cleaning_exceptions.py` (Cleaning Engine, see `application/cleaning/README.md`), `identity_resolution_exceptions.py` (Identity Resolution Engine, see `application/identity_resolution/README.md`), `enrichment_exceptions.py` (Enrichment Provider Framework, see `application/enrichment/README.md`), `comparison_exceptions.py` (Executive Comparison Engine, see `application/comparison/README.md`), `inflection_exceptions.py` (Inflection Detection Engine, see `application/inflection/README.md`). |
 
 ## Current status
 `exceptions/import_exceptions.py`, `exceptions/cleaning_exceptions.py`,
 `exceptions/identity_resolution_exceptions.py`,
-`exceptions/enrichment_exceptions.py`, and
-`exceptions/comparison_exceptions.py` are implemented.
+`exceptions/enrichment_exceptions.py`,
+`exceptions/comparison_exceptions.py`, and
+`exceptions/inflection_exceptions.py` are implemented.
 `repositories/` is now implemented as well — see below. `entities/` and
 `value_objects/` remain empty on purpose — no business
 entities have been written yet, so the repository interfaces are generic
