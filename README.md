@@ -9,8 +9,8 @@ messages, and send them after human review.
 > Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
 > Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
-> Provider (V1) + Google Search Provider (V1).** The project structure,
-> configuration, and wiring are in
+> Provider (V1) + Google Search Provider (V1) + Executive Processing
+> Pipeline (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -88,13 +88,27 @@ messages, and send them after human review.
 > implemented (see
 > [`infrastructure/external_services/email_verification/neverbounce/README.md`](src/lead_intelligence/infrastructure/external_services/email_verification/neverbounce/README.md)).
 > Every other real provider (ZeroBounce, Kickbox, Bouncer, Twilio Lookup,
-> Numverify, Abstract API) is future work behind the same ports. No ORM
-> models, concrete repositories, or tables exist yet, and Identity
-> Resolution's lineage redirects, rollback windows, and full reviewer
-> workflow are explicitly Version 2 — both deliberately deferred to future
-> tasks. Every other business feature (domain entities, phone verification,
-> AI generation, sending) is still an empty, clearly-labeled placeholder
-> waiting for future work.
+> Numverify, Abstract API) is future work behind the same ports. The
+> **Executive Processing Pipeline (Version 1)** — an
+> `ExecutiveProcessingOrchestrator` (`application/executive_pipeline/`)
+> that processes one executive record end to end using every module
+> above: enrichment (Company Website + Google Search, queried once per
+> applicable subject type), the Executive Comparison Engine, the
+> Inflection Detection Engine, and (only if configured) email
+> verification — with per-stage error handling so one stage's failure
+> never discards another's results, and one combined
+> `ExecutiveProcessingReport` (executive name, providers executed,
+> observations collected, comparison summary, detected inflections,
+> verification results, processing duration, processing status) — is also
+> implemented (see
+> [`application/executive_pipeline/README.md`](src/lead_intelligence/application/executive_pipeline/README.md)).
+> No new provider and no change to any existing engine or framework — pure
+> orchestration. No ORM models, concrete repositories, or tables exist
+> yet, and Identity Resolution's lineage redirects, rollback windows, and
+> full reviewer workflow are explicitly Version 2 — both deliberately
+> deferred to future tasks. Every other business feature (domain entities,
+> phone verification, AI generation, sending) is still an empty,
+> clearly-labeled placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -127,7 +141,8 @@ docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
 #    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
-#    Verification/NeverBounce/GoogleSearch unit tests).
+#    Verification/NeverBounce/GoogleSearch/ExecutiveProcessingPipeline
+#    unit + integration tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -176,17 +191,18 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py, comparison_exceptions.py, inflection_exceptions.py, verification_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py, verify_contact.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py, verify_contact.py, process_executive.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
 │       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py, verification_provider_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py, verification_models.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py, verification_models.py, executive_pipeline_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
 │       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
 │       │   ├── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
 │       │   ├── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
 │       │   ├── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
-│       │   └── verification/      # Contact Verification Framework (V1) — see verification/README.md
+│       │   ├── verification/      # Contact Verification Framework (V1) — see verification/README.md
+│       │   └── executive_pipeline/ # Executive Processing Pipeline (V1) — see executive_pipeline/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -222,9 +238,11 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── inflection/             # Inflection Detection Engine unit tests
     │   ├── verification/           # Contact Verification Framework unit tests
     │   ├── neverbounce/            # NeverBounce email provider unit tests
-    │   └── google_search/          # Google Search provider unit tests
+    │   ├── google_search/          # Google Search provider unit tests
+    │   └── executive_pipeline/     # Executive Processing Pipeline unit tests
     ├── integration/               # Tests spanning multiple pieces
-    │   └── test_health.py          # Proves the foundation runs and the database is reachable
+    │   ├── test_health.py          # Proves the foundation runs and the database is reachable
+    │   └── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
 ```
 
@@ -335,8 +353,23 @@ order the project brief lists them:
    is future work behind the same ports. No phone verification, no
    LinkedIn profile or company-information verification, no message
    sending, no AI.
-9. Generate AI-personalized outreach messages.
-10. Send emails after a human review step.
+9. ✅ Process one executive end to end using every module already built —
+   the **Executive Processing Pipeline (Version 1)**
+   (`application/executive_pipeline/`): an `ExecutiveProcessingOrchestrator`
+   that runs enrichment (Company Website + Google Search, queried once per
+   applicable subject type — Person for Google Search, Company for
+   Company Website), aggregates the collected `ObservationCandidate`s,
+   runs the Executive Comparison Engine, runs the Inflection Detection
+   Engine, and — only if a `VerificationCoordinator` was configured —
+   verifies the executive's already-known email address, producing one
+   `ExecutiveProcessingReport` (executive name, providers executed,
+   observations collected, comparison summary, detected inflections,
+   verification results, processing duration, processing status). Each
+   stage has its own error handling, so one stage's failure never
+   discards another's results. No new provider, no AI, no messaging, no
+   automation, and no change to any existing engine or framework.
+10. Generate AI-personalized outreach messages.
+11. Send emails after a human review step.
 
 ## Handling sensitive data
 

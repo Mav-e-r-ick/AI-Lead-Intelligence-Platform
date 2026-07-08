@@ -32,6 +32,10 @@ from lead_intelligence.application.dto.enrichment_models import (
     ProviderSkip,
     SkipReason,
 )
+from lead_intelligence.application.dto.executive_pipeline_models import (
+    ExecutiveProcessingReport,
+    ExecutiveProcessingStatus,
+)
 from lead_intelligence.application.dto.inflection_models import (
     Inflection,
     InflectionReport,
@@ -134,4 +138,6 @@ __all__ = [
     "VerificationProviderSkip",
     "VerificationCoordinationMetrics",
     "VerificationReport",
+    "ExecutiveProcessingStatus",
+    "ExecutiveProcessingReport",
 ]

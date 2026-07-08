@@ -171,6 +171,24 @@ sitting right next to the code it tests for easy navigation.
   `test_coordinator_integration.py` (proving this provider runs correctly
   through the real `EnrichmentCoordinator`/`ProviderRegistry`, not just in
   isolation).
+- `unit/executive_pipeline/` covers the Executive Processing Pipeline:
+  `fixtures.py` (`build_orchestrator` — assembles a real
+  `EnrichmentCoordinator`/`ComparisonEngine`/`InflectionDetectionEngine`/
+  optional `VerificationCoordinator` around injectable fake providers and
+  profile overrides), `test_orchestrator.py` (missing-executive-name
+  handling, the happy path including an end-to-end detected Promotion,
+  subject-type routing — Person- and Company-scoped providers both run,
+  a provider supporting neither never runs — observation aggregation,
+  verification scope — skipped when not configured, skipped when no
+  email is known, receives the existing record's email — per-stage error
+  handling for all four stages via genuinely invalid sub-profiles, status
+  derivation, and determinism).
+- `integration/test_executive_pipeline.py` proves the same orchestrator
+  processes one executive correctly through the *real*
+  `CompanyWebsiteProvider`, `GoogleSearchProvider`, and
+  `NeverBounceEmailProvider` (each HTTP-mocked via `httpx.MockTransport`,
+  never a real network call), with no fakes standing in for any of the
+  orchestrator's own collaborators.
 
 ## Running the tests
 ```bash

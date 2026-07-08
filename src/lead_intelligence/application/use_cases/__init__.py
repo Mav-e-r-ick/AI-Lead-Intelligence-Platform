@@ -9,6 +9,9 @@ from lead_intelligence.application.use_cases.detect_inflections import (
 )
 from lead_intelligence.application.use_cases.enrich_subject import EnrichSubjectUseCase
 from lead_intelligence.application.use_cases.import_dataset import ImportDatasetUseCase
+from lead_intelligence.application.use_cases.process_executive import (
+    ProcessExecutiveUseCase,
+)
 from lead_intelligence.application.use_cases.resolve_identity import (
     ResolveIdentityUseCase,
 )
@@ -24,4 +27,5 @@ __all__ = [
     "CompareExecutiveUseCase",
     "DetectInflectionsUseCase",
     "VerifyContactUseCase",
+    "ProcessExecutiveUseCase",
 ]
