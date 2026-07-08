@@ -63,6 +63,16 @@ from lead_intelligence.application.dto.models import (
     RawRecord,
     SourceMetadata,
 )
+from lead_intelligence.application.dto.verification_models import (
+    ContactType,
+    VerificationCoordinationMetrics,
+    VerificationProviderSkip,
+    VerificationReport,
+    VerificationRequest,
+    VerificationResult,
+    VerificationSkipReason,
+    VerificationStatus,
+)
 
 __all__ = [
     "RawRecord",
@@ -116,4 +126,12 @@ __all__ = [
     "InflectionType",
     "Inflection",
     "InflectionReport",
+    "ContactType",
+    "VerificationStatus",
+    "VerificationSkipReason",
+    "VerificationRequest",
+    "VerificationResult",
+    "VerificationProviderSkip",
+    "VerificationCoordinationMetrics",
+    "VerificationReport",
 ]

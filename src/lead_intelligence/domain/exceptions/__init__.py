@@ -31,6 +31,11 @@ from lead_intelligence.domain.exceptions.inflection_exceptions import (
     InvalidInflectionConfigurationError,
     LeadInflectionError,
 )
+from lead_intelligence.domain.exceptions.verification_exceptions import (
+    DuplicateVerificationProviderError,
+    InvalidVerificationConfigurationError,
+    LeadVerificationError,
+)
 
 __all__ = [
     "LeadImportError",
@@ -52,4 +57,7 @@ __all__ = [
     "LeadInflectionError",
     "InvalidInflectionConfigurationError",
     "DuplicateInflectionRuleError",
+    "LeadVerificationError",
+    "InvalidVerificationConfigurationError",
+    "DuplicateVerificationProviderError",
 ]

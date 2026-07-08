@@ -8,7 +8,8 @@ messages, and send them after human review.
 > **Status: Foundation + Import Engine + Cleaning Engine + Persistence
 > Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
-> Engine (V1).** The project structure, configuration, and wiring are in
+> Engine (V1) + Contact Verification Framework (V1).** The project
+> structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -60,12 +61,23 @@ messages, and send them after human review.
 > keyword-based title seniority ranking — no AI, no search, no
 > verification (see
 > [`application/inflection/README.md`](src/lead_intelligence/application/inflection/README.md)).
-> No ORM models, concrete repositories, or tables exist yet, and Identity
-> Resolution's lineage redirects, rollback windows, and full reviewer
-> workflow are explicitly Version 2 — both deliberately deferred to future
-> tasks. Every other business feature (domain entities, verification, AI
-> generation, sending) is still an empty, clearly-labeled placeholder
-> waiting for future work.
+> The **Contact Verification Framework (Version 1)** — before an executive
+> is contacted, their email address and phone number should still be
+> confirmed valid: this framework defines `VerificationProviderPort` (and
+> its `EmailVerificationPort`/`PhoneVerificationPort` specializations),
+> the request/result/report shapes, per-provider priority/enabled
+> configuration, and a `VerificationCoordinator` that runs every
+> applicable provider and reports every result unresolved (it never picks
+> a "winning" verdict when providers disagree) — is also implemented (see
+> [`application/verification/README.md`](src/lead_intelligence/application/verification/README.md)).
+> No concrete provider (NeverBounce, ZeroBounce, Kickbox, Bouncer, Twilio
+> Lookup, Numverify, Abstract API) is implemented yet — each is future work
+> behind the same ports. No ORM models, concrete repositories, or tables
+> exist yet, and Identity Resolution's lineage redirects, rollback
+> windows, and full reviewer workflow are explicitly Version 2 — both
+> deliberately deferred to future tasks. Every other business feature
+> (domain entities, AI generation, sending) is still an empty,
+> clearly-labeled placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -97,8 +109,8 @@ cp .env.example .env
 docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
-#    Persistence/Identity Resolution/Enrichment/Comparison/Inflection
-#    unit tests).
+#    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
+#    Verification unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -144,19 +156,20 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── entities/          # e.g. future Lead, Executive, Company classes
 │       │   ├── value_objects/     # e.g. future EmailAddress, PhoneNumber
 │       │   ├── repositories/      # Repository + Unit of Work *interfaces* (10 named + base classes)
-│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py, comparison_exceptions.py, inflection_exceptions.py
+│       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py, comparison_exceptions.py, inflection_exceptions.py, verification_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py, detect_inflections.py, verify_contact.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
-│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py
+│       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py, verification_provider_port.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py, inflection_models.py, verification_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
 │       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
 │       │   ├── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
 │       │   ├── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
-│       │   └── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
+│       │   ├── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
+│       │   └── verification/      # Contact Verification Framework (V1) — see verification/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -187,7 +200,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── enrichment/             # Enrichment Provider Framework unit tests
     │   ├── company_website/        # Company Website Provider unit tests
     │   ├── comparison/             # Executive Comparison Engine unit tests
-    │   └── inflection/             # Inflection Detection Engine unit tests
+    │   ├── inflection/             # Inflection Detection Engine unit tests
+    │   └── verification/           # Contact Verification Framework unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -277,7 +291,17 @@ order the project brief lists them:
    and a human-readable explanation. Title-change direction (promotion vs.
    demotion) uses a keyword-based seniority ranking, not AI. No AI, no
    search, no verification, no outreach messaging.
-8. Verify emails, phone numbers, LinkedIn profiles, and company information.
+8. ✅ Verify contact details before outreach — the **Contact Verification
+   Framework (Version 1)** (`application/verification/`):
+   `VerificationProviderPort` (with `EmailVerificationPort`/
+   `PhoneVerificationPort` specializations), request/result/report shapes,
+   per-provider priority/enabled configuration, and a
+   `VerificationCoordinator` that runs every applicable provider and
+   reports every result unresolved rather than picking a winner. No
+   concrete provider (NeverBounce, ZeroBounce, Kickbox, Bouncer, Twilio
+   Lookup, Numverify, Abstract API) is implemented yet — each is future
+   work behind the same ports. No LinkedIn profile or company-information
+   verification, no message sending, no AI.
 9. Generate AI-personalized outreach messages.
 10. Send emails after a human review step.
 

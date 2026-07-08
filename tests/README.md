@@ -129,6 +129,19 @@ sitting right next to the code it tests for easy navigation.
   (end-to-end confidence arithmetic and clamping, disabled rules, multiple
   simultaneous inflections, determinism), and `test_use_case.py`
   (`DetectInflectionsUseCase`).
+- `unit/verification/` covers the Contact Verification Framework:
+  `fixtures.py` (`FakeVerificationProvider`, an in-memory stand-in for the
+  real providers this task deliberately does not implement),
+  `test_config.py` (`VerificationProfile`/`VerificationProviderConfiguration`
+  validation and enabled/default-fallback lookup), `test_ports.py`
+  (`EmailVerificationPort`/`PhoneVerificationPort`'s fixed contact-type
+  support), `test_coordinator.py` (end-to-end: priority ordering and
+  tie-breaking, disabled-provider skipping, unsupported-contact-type
+  providers never even being considered, fail-safe handling of a raising
+  provider, technical-failure vs. successful-call metrics classification,
+  duplicate-provider-id guarding, never picking a winning verdict when
+  providers disagree, and determinism), and `test_use_case.py`
+  (`VerifyContactUseCase`).
 
 ## Running the tests
 ```bash

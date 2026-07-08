@@ -12,6 +12,9 @@ from lead_intelligence.application.use_cases.import_dataset import ImportDataset
 from lead_intelligence.application.use_cases.resolve_identity import (
     ResolveIdentityUseCase,
 )
+from lead_intelligence.application.use_cases.verify_contact import (
+    VerifyContactUseCase,
+)
 
 __all__ = [
     "ImportDatasetUseCase",
@@ -20,4 +23,5 @@ __all__ = [
     "EnrichSubjectUseCase",
     "CompareExecutiveUseCase",
     "DetectInflectionsUseCase",
+    "VerifyContactUseCase",
 ]
