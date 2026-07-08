@@ -5,6 +5,10 @@ from lead_intelligence.domain.exceptions.cleaning_exceptions import (
     LeadCleaningError,
     RuleExecutionError,
 )
+from lead_intelligence.domain.exceptions.comparison_exceptions import (
+    InvalidComparisonConfigurationError,
+    LeadComparisonError,
+)
 from lead_intelligence.domain.exceptions.enrichment_exceptions import (
     DuplicateProviderError,
     InvalidEnrichmentConfigurationError,
@@ -38,4 +42,6 @@ __all__ = [
     "LeadEnrichmentError",
     "InvalidEnrichmentConfigurationError",
     "DuplicateProviderError",
+    "LeadComparisonError",
+    "InvalidComparisonConfigurationError",
 ]

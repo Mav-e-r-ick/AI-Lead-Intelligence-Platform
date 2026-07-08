@@ -104,6 +104,18 @@ sitting right next to the code it tests for easy navigation.
   cap), and `test_coordinator_integration.py` (proving this provider runs
   correctly through the real `EnrichmentCoordinator`/`ProviderRegistry`,
   not just in isolation).
+- `unit/comparison/` covers the Executive Comparison Engine: `fixtures.py`
+  (`make_existing_record`, `make_observation` builders), `test_comparators.py`
+  (text normalization, `difflib`-based similarity, email/phone
+  normalizers), `test_resolvers.py` (existing-value extraction fallback
+  chains per field), `test_config.py` (`ComparisonProfile` validation —
+  duplicate fields, missing resolvers, out-of-range fuzzy thresholds), and
+  `test_engine.py` (all six verdicts — `MATCH`/`CHANGED`/`MISSING`/`NEW`/
+  `CONFLICT`/`UNKNOWN` — for both EXACT and FUZZY fields, conflict
+  deduplication distinguishing trivial formatting differences from
+  genuinely distinct values, summary/confidence arithmetic, field
+  ordering, and determinism), and `test_use_case.py`
+  (`CompareExecutiveUseCase`).
 
 ## Running the tests
 ```bash

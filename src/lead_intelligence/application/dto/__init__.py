@@ -12,6 +12,13 @@ from lead_intelligence.application.dto.cleaning_models import (
     RuleExecutionFailure,
     RuleMetrics,
 )
+from lead_intelligence.application.dto.comparison_models import (
+    ComparisonResult,
+    ComparisonStatus,
+    ComparisonStrategy,
+    ComparisonSummary,
+    FieldComparison,
+)
 from lead_intelligence.application.dto.enrichment_models import (
     EnrichmentCoordinationMetrics,
     EnrichmentCoordinationResult,
@@ -96,4 +103,9 @@ __all__ = [
     "ProviderSkip",
     "EnrichmentCoordinationMetrics",
     "EnrichmentCoordinationResult",
+    "ComparisonStatus",
+    "ComparisonStrategy",
+    "FieldComparison",
+    "ComparisonSummary",
+    "ComparisonResult",
 ]

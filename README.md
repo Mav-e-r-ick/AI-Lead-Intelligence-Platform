@@ -40,13 +40,22 @@ messages, and send them after human review.
 > [`infrastructure/enrichment/company_website/README.md`](src/lead_intelligence/infrastructure/enrichment/company_website/README.md)).
 > Every other real source (Leadership Page, News, Public Web Search, CRM,
 > D&B, LinkedIn, other commercial APIs) is future work behind the same
-> `EnrichmentProviderPort`. No ORM models, concrete repositories, or
-> tables exist yet, and Identity Resolution's lineage redirects, rollback
-> windows, and full reviewer workflow are explicitly Version 2 — both
-> deliberately deferred to future tasks. Every other business feature
-> (domain entities, verification, inflection-point detection, AI
-> generation, sending) is still an empty, clearly-labeled placeholder
-> waiting for future work.
+> `EnrichmentProviderPort`. The **Executive Comparison Engine (Version 1)**
+> — compares an existing (cleaned) executive record against newly
+> collected `ObservationCandidate`s field by field (name, title, company,
+> email, phone), using configurable exact or fuzzy strategies, and reports
+> one of six verdicts (`MATCH`/`CHANGED`/`MISSING`/`NEW`/`CONFLICT`/
+> `UNKNOWN`) plus a summary with a deterministic confidence score — is also
+> implemented (see
+> [`application/comparison/README.md`](src/lead_intelligence/application/comparison/README.md)).
+> It only identifies differences; it never classifies what a difference
+> means (no promotion/resignation/inflection detection). No ORM models,
+> concrete repositories, or tables exist yet, and Identity Resolution's
+> lineage redirects, rollback windows, and full reviewer workflow are
+> explicitly Version 2 — both deliberately deferred to future tasks. Every
+> other business feature (domain entities, verification, inflection-point
+> detection, AI generation, sending) is still an empty, clearly-labeled
+> placeholder waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -78,7 +87,7 @@ cp .env.example .env
 docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
-#    Persistence/Identity Resolution/Enrichment unit tests).
+#    Persistence/Identity Resolution/Enrichment/Comparison unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -127,14 +136,15 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   └── exceptions/        # import_exceptions.py, cleaning_exceptions.py, identity_resolution_exceptions.py, enrichment_exceptions.py
 │       ├── application/          # Use cases (what the system can DO)
 │       │   ├── README.md
-│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py
+│       │   ├── use_cases/         # import_dataset.py, clean_dataset.py, resolve_identity.py, enrich_subject.py, compare_executive.py
 │       │   ├── services/          # Logic shared across use cases (none yet)
 │       │   ├── ports/             # source_reader_port.py, cleaning_rule_port.py, identity_candidate_port.py, enrichment_provider_port.py
-│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py
+│       │   ├── dto/               # models.py, cleaning_models.py, identity_resolution_models.py, enrichment_models.py, comparison_models.py
 │       │   ├── cleaning/          # Cleaning Engine — see cleaning/README.md (68 rules, CLN-001..068)
 │       │   │   └── rules/          # One module per CLEANING_RULES.md category
 │       │   ├── identity_resolution/ # Identity Resolution Engine (V1) — see identity_resolution/README.md
-│       │   └── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
+│       │   ├── enrichment/        # Enrichment Provider Framework (V1) — see enrichment/README.md
+│       │   └── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
 │       │   ├── README.md
 │       │   ├── database/          # SQLAlchemy engine/session/base, SqlAlchemyUnitOfWork, health check (no tables yet)
@@ -163,7 +173,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── persistence/            # Repository interfaces, Unit of Work, session factory, health check
     │   ├── identity_resolution/    # Identity Resolution Engine unit tests
     │   ├── enrichment/             # Enrichment Provider Framework unit tests
-    │   └── company_website/        # Company Website Provider unit tests
+    │   ├── company_website/        # Company Website Provider unit tests
+    │   └── comparison/             # Executive Comparison Engine unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -233,11 +244,21 @@ order the project brief lists them:
    implemented: every other concrete provider (Leadership Page, News,
    Public Web Search, CRM, D&B, LinkedIn, other commercial APIs) — each is
    a future task behind the same port.
-6. Verify emails, phone numbers, LinkedIn profiles, and company information.
-7. Detect professional inflection points (promotion, job change, resignation,
-   company funding, etc.).
-8. Generate AI-personalized outreach messages.
-9. Send emails after a human review step.
+6. ✅ Identify differences between existing records and newly collected
+   information — the **Executive Comparison Engine (Version 1)**
+   (`application/comparison/`): compares name, title, company, email, and
+   phone between an existing (cleaned) record and new
+   `ObservationCandidate`s, using configurable exact (email, phone) or
+   fuzzy (name, title, company) strategies, and reports
+   `MATCH`/`CHANGED`/`MISSING`/`NEW`/`CONFLICT`/`UNKNOWN` per field plus a
+   summary with a deterministic confidence score. Deliberately does not
+   classify what a difference means — no promotion/resignation/inflection
+   detection, no AI, no verification.
+7. Verify emails, phone numbers, LinkedIn profiles, and company information.
+8. Detect professional inflection points (promotion, job change, resignation,
+   company funding, etc.) — building on the Comparison Engine's output.
+9. Generate AI-personalized outreach messages.
+10. Send emails after a human review step.
 
 ## Handling sensitive data
 
