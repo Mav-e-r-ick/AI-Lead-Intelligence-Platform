@@ -8,8 +8,8 @@ messages, and send them after human review.
 > **Status: Foundation + Import Engine + Cleaning Engine + Persistence
 > Infrastructure + Identity Resolution Engine (V1) + Enrichment Provider
 > Framework (V1) + Executive Comparison Engine (V1) + Inflection Detection
-> Engine (V1) + Contact Verification Framework (V1).** The project
-> structure, configuration, and wiring are in
+> Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
+> Provider (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -70,14 +70,21 @@ messages, and send them after human review.
 > applicable provider and reports every result unresolved (it never picks
 > a "winning" verdict when providers disagree) — is also implemented (see
 > [`application/verification/README.md`](src/lead_intelligence/application/verification/README.md)).
-> No concrete provider (NeverBounce, ZeroBounce, Kickbox, Bouncer, Twilio
-> Lookup, Numverify, Abstract API) is implemented yet — each is future work
-> behind the same ports. No ORM models, concrete repositories, or tables
-> exist yet, and Identity Resolution's lineage redirects, rollback
-> windows, and full reviewer workflow are explicitly Version 2 — both
-> deliberately deferred to future tasks. Every other business feature
-> (domain entities, AI generation, sending) is still an empty,
-> clearly-labeled placeholder waiting for future work.
+> Its first concrete provider, the **NeverBounce Email Provider (Version
+> 1)** — verifies one email address via NeverBounce's v4 single-check API,
+> mapping every documented outcome (valid, invalid, disposable, catch-all,
+> unknown, rate-limited, timeout, API error) onto the framework's
+> `VerificationStatus`, with retries, timeouts, and logging — is also
+> implemented (see
+> [`infrastructure/external_services/email_verification/neverbounce/README.md`](src/lead_intelligence/infrastructure/external_services/email_verification/neverbounce/README.md)).
+> Every other real provider (ZeroBounce, Kickbox, Bouncer, Twilio Lookup,
+> Numverify, Abstract API) is future work behind the same ports. No ORM
+> models, concrete repositories, or tables exist yet, and Identity
+> Resolution's lineage redirects, rollback windows, and full reviewer
+> workflow are explicitly Version 2 — both deliberately deferred to future
+> tasks. Every other business feature (domain entities, phone verification,
+> AI generation, sending) is still an empty, clearly-labeled placeholder
+> waiting for future work.
 
 ## Why does an empty project need this much structure?
 
@@ -110,7 +117,7 @@ docker-compose up -d postgres
 
 # 5. Run the test suite (health-check smoke test + Import/Cleaning/
 #    Persistence/Identity Resolution/Enrichment/Comparison/Inflection/
-#    Verification unit tests).
+#    Verification/NeverBounce unit tests).
 pytest
 
 # 6. Run the API and confirm the foundation actually boots.
@@ -179,6 +186,7 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   │   └── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
+│       │       │   └── neverbounce/  # NeverBounceEmailProvider (V1) — retry/timeout, full result mapping
 │       │       ├── phone_verification/
 │       │       ├── linkedin/
 │       │       ├── company_data/
@@ -201,7 +209,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── company_website/        # Company Website Provider unit tests
     │   ├── comparison/             # Executive Comparison Engine unit tests
     │   ├── inflection/             # Inflection Detection Engine unit tests
-    │   └── verification/           # Contact Verification Framework unit tests
+    │   ├── verification/           # Contact Verification Framework unit tests
+    │   └── neverbounce/            # NeverBounce email provider unit tests
     ├── integration/               # Tests spanning multiple pieces
     │   └── test_health.py          # Proves the foundation runs and the database is reachable
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
@@ -297,11 +306,17 @@ order the project brief lists them:
    `PhoneVerificationPort` specializations), request/result/report shapes,
    per-provider priority/enabled configuration, and a
    `VerificationCoordinator` that runs every applicable provider and
-   reports every result unresolved rather than picking a winner. No
-   concrete provider (NeverBounce, ZeroBounce, Kickbox, Bouncer, Twilio
-   Lookup, Numverify, Abstract API) is implemented yet — each is future
-   work behind the same ports. No LinkedIn profile or company-information
-   verification, no message sending, no AI.
+   reports every result unresolved rather than picking a winner. Its first
+   concrete provider, the **NeverBounce Email Provider (Version 1)**
+   (`infrastructure/external_services/email_verification/neverbounce/`) —
+   verifies one email address via NeverBounce's v4 single-check API,
+   mapping valid/invalid/disposable/catch-all/unknown/rate-limited/
+   timeout/API-error outcomes onto `VerificationStatus`, with retries,
+   timeouts, and logging — is also implemented. Every other provider
+   (ZeroBounce, Kickbox, Bouncer, Twilio Lookup, Numverify, Abstract API)
+   is future work behind the same ports. No phone verification, no
+   LinkedIn profile or company-information verification, no message
+   sending, no AI.
 9. Generate AI-personalized outreach messages.
 10. Send emails after a human review step.
 

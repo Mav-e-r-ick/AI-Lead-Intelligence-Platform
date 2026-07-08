@@ -32,7 +32,9 @@ nothing in `domain/`, ever needs to change.
 | `enrichment/` | Adapters that implement `application/ports/enrichment_provider_port.py` — one sub-folder per external source, the same one-adapter-per-technology convention `importers/` uses. See `enrichment/company_website/README.md`. |
 | `enrichment/company_website/` | **Implemented.** `CompanyWebsiteProvider` — fetches a company's website, respects `robots.txt`, finds its leadership/about/team page(s), and extracts publicly listed executives via DOM heuristics (no AI). |
 | `enrichment/leadership_page/`, `enrichment/news/`, `enrichment/web_search/`, `enrichment/crm/`, `enrichment/dnb/`, `enrichment/linkedin/` | Future sibling providers, implementing the same port — not built yet. |
-| `external_services/email_verification/` | Talks to whichever email-verification vendor is chosen (e.g. ZeroBounce, NeverBounce, Hunter.io). |
+| `external_services/email_verification/` | Adapters that implement `application/ports/verification_provider_port.py`'s `EmailVerificationPort` — one sub-folder per vendor, same convention as `enrichment/`. See `email_verification/neverbounce/README.md`. |
+| `external_services/email_verification/neverbounce/` | **Implemented.** `NeverBounceEmailProvider` — verifies email addresses via NeverBounce's v4 single-check API, with retry/timeout handling and full result mapping (valid/invalid/disposable/catch-all/unknown/rate-limited/timeout/API error). |
+| `external_services/email_verification/zerobounce/`, `.../kickbox/`, `.../bouncer/` | Future sibling providers, implementing the same port — not built yet. |
 | `external_services/phone_verification/` | Talks to whichever phone-verification vendor is chosen (e.g. Twilio Lookup, Numverify). |
 | `external_services/linkedin/` | Talks to whichever LinkedIn/profile-data provider is chosen (e.g. Proxycurl). |
 | `external_services/company_data/` | Talks to whichever company-info/funding-data provider is chosen (e.g. Clearbit, Crunchbase). |
@@ -41,13 +43,15 @@ nothing in `domain/`, ever needs to change.
 
 ## Current status
 The Excel Import Engine (`importers/excel/`), the `database/` package
-(engine/session, Unit of Work, health check — see the table above), and
-the Company Website enrichment provider (`enrichment/company_website/`)
-are implemented. Every other `enrichment/` and `external_services/` folder
-here is still empty on purpose; no other vendor integrations exist yet.
-These folders exist so each future integration has one obvious, isolated
-home, and so that no external SDK ever needs to be imported from `domain/`
-or `application/`.
+(engine/session, Unit of Work, health check — see the table above), the
+Company Website enrichment provider (`enrichment/company_website/`), and
+the NeverBounce email verification provider
+(`external_services/email_verification/neverbounce/`) are implemented.
+Every other `enrichment/` and `external_services/` folder here is still
+empty on purpose; no other vendor integrations exist yet. These folders
+exist so each future integration has one obvious, isolated home, and so
+that no external SDK ever needs to be imported from `domain/` or
+`application/`.
 
 ### `database/` — configuration
 

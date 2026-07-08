@@ -142,6 +142,18 @@ sitting right next to the code it tests for easy navigation.
   duplicate-provider-id guarding, never picking a winning verdict when
   providers disagree, and determinism), and `test_use_case.py`
   (`VerifyContactUseCase`).
+- `unit/neverbounce/` covers the NeverBounce email verification provider:
+  `fixtures.py` (`httpx.MockTransport`-backed client builder and
+  NeverBounce response-body builders — no test here ever touches the real
+  network), `test_settings.py` (`NeverBounceSettings` validation and
+  `from_env()`, including real `os.environ` via `monkeypatch`),
+  `test_provider.py` (every documented NeverBounce `result` value's status
+  mapping — valid/invalid/disposable/catchall/unknown — every API-level
+  error status — auth_failure/general_failure/bad_referrer/
+  throttle_triggered/temp_unavail — HTTP-level failures — 429/5xx/4xx/
+  timeout/connection error — and their retry behavior), and
+  `test_coordinator_integration.py` (proving this provider runs correctly
+  through the real `VerificationCoordinator`, not just in isolation).
 
 ## Running the tests
 ```bash
