@@ -40,18 +40,44 @@ context); everywhere else in this provider that previously held a
 launch a second time against a `user_data_dir` that already has a running
 Chrome instance open on it — see settings.py's `user_data_dir` docstring.
 
-WHY GOOGLE'S OWN robots.txt IS STILL WORTH READING BEFORE RELYING ON THIS:
+WHY robots.txt IS CHECKED BUT NO LONGER BLOCKS EXECUTION (CHANGED):
 Google's real robots.txt has, for many years, disallowed `/search` for
-generic crawlers. `_robots_allow_search()` (below) is unchanged from
-before — it still checks the *configured* target's actual, live
-robots.txt, exactly as it always has — so if Google's current robots.txt
-disallows this provider's `user_agent` from `/search`, this provider will
-(correctly, per its own existing, unmodified design) report SUCCESS with
-zero results rather than fetch anyway. This is not a bug introduced here;
-it is the pre-existing "only the operator decides, and this provider
-still checks robots.txt for whatever they point it at" behavior applied
-to a new target. The operator remains responsible for confirming they are
-authorized to automate Google's results page before relying on this.
+generic crawlers — a rule aimed at automated bots hitting Google
+programmatically, not at a human using their own browser and account.
+Now that this provider drives the operator's own real, signed-in Chrome
+through the same homepage → type → click sequence a person would use
+(see below), `_robots_allow_search()`/`_can_fetch_configured_url()` are
+kept UNCHANGED and still called — but `search()` now only logs a warning
+when the target disallows it, and proceeds anyway, rather than returning
+early with zero results. This is a deliberate, explicit choice made by
+the operator running this code, not a default: robots.txt is a voluntary
+convention for automated crawlers, not law, and this class's own
+`user_agent` string is never sent to Google at all in the browser-driven
+flow (only the plain-HTTP robots.txt fetch uses it) — but Google's Terms
+of Service separately restrict automated querying regardless of
+robots.txt, and the operator remains solely responsible for confirming
+they are authorized to do this against their chosen target and account.
+
+WHY THE HOMEPAGE IS VISITED FIRST, NOT A DIRECT RESULTS URL (CHANGED):
+The previous version navigated straight to
+`search_url_template.format(query=...)` (e.g.
+`https://www.google.com/search?q=...`) — a referrerless, no-interaction-
+history navigation that (especially against a persistent profile Google
+hasn't seen search from before) reliably lands on a consent interstitial
+instead of results; the old code detected that consent page but only
+ever treated it as a failure to retry-then-give-up on, never attempted to
+accept it. `_search_single_query()` now drives `page` through
+`_perform_human_like_search()`: open the configured target's homepage
+(derived from `search_url_template`'s own scheme+host — no new setting),
+wait for it to load, detect and click through a consent page if one
+appears, locate the search box, type the query character by character
+with randomized delays, press Enter, wait for results, then do a little
+randomized scrolling — all *before* `extract_results()` runs, unchanged,
+against whatever `result_container_selector`/`title_selector`/
+`url_selector`/`snippet_selector` are configured. A CAPTCHA/"unusual
+traffic" page (or a consent page that couldn't be dismissed) appearing
+after this sequence is still detected by the same `_detect_interstitial()`
+as before and still funneled into the existing retry-then-fail path.
 
 WHY CONSENT/CAPTCHA/"UNUSUAL TRAFFIC" PAGES ARE DETECTED EXPLICITLY:
 Google serves these in place of real results, but still returns HTTP 200
@@ -99,11 +125,12 @@ does not rely on it anywhere else).
 
 from __future__ import annotations
 
+import random
 import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Protocol, Sequence
 from urllib.parse import quote_plus, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -127,6 +154,7 @@ from lead_intelligence.infrastructure.search.browser.cache import (
     SearchResultCache,
 )
 from lead_intelligence.infrastructure.search.browser.extraction import (
+    ElementLike,
     PageLike,
     extract_results,
 )
@@ -135,6 +163,41 @@ from lead_intelligence.infrastructure.search.browser.settings import (
 )
 
 PROVIDER_ID = "browser_search"
+
+#: Candidate search-box selectors, tried in order, on the target's
+#: homepage — covers Google's current ("textarea[name='q']") and legacy
+#: ("input[name='q']") markup plus the generic HTML5 "input[type=search]"
+#: most other engines use, so this stays usable for a non-Google
+#: `search_url_template` too (see settings.py's "no built-in, hardcoded
+#: target search engine").
+_SEARCH_BOX_SELECTORS: tuple[str, ...] = (
+    "textarea[name='q']",
+    "input[name='q']",
+    "input[type='search']",
+)
+
+#: Candidate "accept"/"agree" controls on a consent interstitial, tried in
+#: order. "#L2AGLb" is Google's own long-stable id for its "Accept all"
+#: button; the two :has-text() selectors are a generic fallback for other
+#: consent-management platforms' wording.
+_CONSENT_ACCEPT_SELECTORS: tuple[str, ...] = (
+    "#L2AGLb",
+    "button:has-text('Accept all')",
+    "button:has-text('I agree')",
+)
+
+#: Randomized delay bounds (seconds, passed through self._sleep so tests
+#: can no-op them) for each stage of the human-like search flow. Not
+#: exposed as settings — see module docstring on keeping this the
+#: smallest change necessary; these can graduate to settings later if an
+#: operator needs to tune them.
+_POST_LOAD_WAIT_RANGE_S = (0.8, 2.0)
+_POST_CONSENT_WAIT_RANGE_S = (0.4, 1.0)
+_TYPING_DELAY_RANGE_S = (0.05, 0.25)
+_POST_RESULTS_WAIT_RANGE_S = (0.6, 1.5)
+_SCROLL_STEPS_RANGE = (2, 4)
+_SCROLL_DELTA_RANGE = (150.0, 500.0)
+_SCROLL_PAUSE_RANGE_S = (0.2, 0.6)
 
 
 class _InterstitialPageDetected(Exception):
@@ -148,11 +211,38 @@ class _InterstitialPageDetected(Exception):
         self.reason = reason
 
 
+class _SearchBoxNotFound(Exception):
+    """Raised internally when none of `_SEARCH_BOX_SELECTORS` matched the
+    homepage — caught by `_search_single_query`'s existing retry handling,
+    exactly like a navigation timeout."""
+
+    def __init__(self, homepage_url: str) -> None:
+        super().__init__(f"no search box found on {homepage_url}")
+
+
+class KeyboardLike(Protocol):
+    """The subset of Playwright's `Keyboard` this provider needs, for
+    typing the query and pressing Enter like a person would."""
+
+    def type(self, text: str, delay: float | None = None) -> None: ...
+
+    def press(self, key: str) -> None: ...
+
+
+class MouseLike(Protocol):
+    """The subset of Playwright's `Mouse` this provider needs, for the
+    small randomized scroll before extraction."""
+
+    def wheel(self, delta_x: float, delta_y: float) -> None: ...
+
+
 class NavigablePage(PageLike, Protocol):
     """The subset of Playwright's `Page` this provider needs beyond what
-    extraction.py already requires (PageLike): actually navigating, plus
-    (for zero-result debugging, see `_save_debug_artifacts`) reading back
-    the rendered HTML and taking a screenshot."""
+    extraction.py already requires (PageLike): navigating, reading back
+    rendered HTML/a screenshot (for debug-artifact capture), and — for the
+    human-like homepage → type → click search flow (see module docstring)
+    — locating/clicking elements, waiting for load state/a selector,
+    typing, and scrolling."""
 
     def goto(self, url: str, timeout: float | None = None) -> object: ...
 
@@ -161,6 +251,26 @@ class NavigablePage(PageLike, Protocol):
     def content(self) -> str: ...
 
     def screenshot(self, path: str) -> object: ...
+
+    def title(self) -> str: ...
+
+    def query_selector(self, selector: str) -> ElementLike | None: ...
+
+    def click(self, selector: str, timeout: float | None = None) -> object: ...
+
+    def wait_for_load_state(
+        self, state: str = "load", timeout: float | None = None
+    ) -> object: ...
+
+    def wait_for_selector(
+        self, selector: str, timeout: float | None = None
+    ) -> object: ...
+
+    @property
+    def keyboard(self) -> KeyboardLike: ...
+
+    @property
+    def mouse(self) -> MouseLike: ...
 
 
 class BrowserLike(Protocol):
@@ -188,12 +298,20 @@ def _default_browser_factory(
     def factory() -> BrowserLike:
         from playwright.sync_api import sync_playwright
 
+        logger.info(
+            "Launching browser: user_data_dir='{}', headless={}, "
+            "executable_path='{}'",
+            settings.user_data_dir,
+            settings.headless,
+            settings.executable_path or "(Playwright default)",
+        )
         driver = sync_playwright().start()
         context = driver.chromium.launch_persistent_context(
             settings.user_data_dir,
             headless=settings.headless,
             executable_path=settings.executable_path,
         )
+        logger.debug("Browser launched.")
         return _PlaywrightBrowser(driver, context)
 
     return factory
@@ -331,11 +449,16 @@ class BrowserSearchProvider(SearchProviderPort):
             )
 
         if not self._robots_allow_search():
-            logger.info(
-                "robots.txt disallows querying the configured search engine; "
-                "reporting nothing."
+            logger.warning(
+                "robots.txt disallows user_agent '{}' from '{}'. Continuing "
+                "anyway: this provider now drives the operator's own real, "
+                "signed-in browser session rather than an automated crawler "
+                "(see provider.py's module docstring) — the operator is "
+                "responsible for confirming they are authorized to do this "
+                "for their chosen target and account.",
+                self._settings.user_agent,
+                self._settings.search_url_template,
             )
-            return self._response(request, EnrichmentStatus.SUCCESS, ())
 
         logger.info(
             "Browser Search provider starting: executive='{}', {} quer(y/ies)",
@@ -409,20 +532,26 @@ class BrowserSearchProvider(SearchProviderPort):
             logger.debug("Cache hit for query '{}'", query)
             return cached
 
-        url = self._settings.search_url_template.format(query=quote_plus(query))
+        # No longer navigated to directly (see module docstring on why) —
+        # kept only as an informational log line, for comparison against
+        # wherever the human-like flow, below, actually ends up.
+        equivalent_url = self._settings.search_url_template.format(
+            query=quote_plus(query)
+        )
         attempts = self._settings.max_retries + 1
         logger.info("Search query: '{}'", query)
-        logger.info("Search URL: {}", url)
+        logger.debug("Equivalent direct results URL: {}", equivalent_url)
 
         for attempt in range(1, attempts + 1):
             page: NavigablePage | None = None
             try:
                 page = self._get_browser().new_page()
-                page.goto(url, timeout=self._settings.timeout_seconds * 1000)
+                self._perform_human_like_search(page, query)
                 interstitial = _detect_interstitial(page)
                 if interstitial is not None:
                     self._save_debug_artifacts(page, query, reason=interstitial)
                     raise _InterstitialPageDetected(interstitial)
+                logger.debug("Extraction started for '{}'", query)
                 results = extract_results(page, self._settings, source=self.provider_id)
                 if not results:
                     self._save_debug_artifacts(page, query, reason="zero_results")
@@ -448,6 +577,90 @@ class BrowserSearchProvider(SearchProviderPort):
             return results
 
         return None
+
+    def _perform_human_like_search(self, page: NavigablePage, query: str) -> None:
+        """Search `query` on `page` the way a person would: open the
+        target's homepage, wait for it, accept a consent dialog if one
+        appears, click the search box, type the query with randomized
+        per-character delays, press Enter, wait for results, then a
+        little randomized scrolling — see module docstring ("WHY THE
+        HOMEPAGE IS VISITED FIRST..."). Leaves `page` on the results page
+        for the caller's `_detect_interstitial()`/`extract_results()`
+        calls; raises (caught by `_search_single_query`'s existing retry
+        handling, same as a navigation timeout always has been) if no
+        search box could be found.
+        """
+
+        homepage_url = self._homepage_url()
+        logger.info("Opening homepage: {}", homepage_url)
+        page.goto(homepage_url, timeout=self._settings.timeout_seconds * 1000)
+        page.wait_for_load_state("load", timeout=self._settings.timeout_seconds * 1000)
+        self._random_pause(_POST_LOAD_WAIT_RANGE_S)
+
+        if _detect_interstitial(page) == "consent_page":
+            logger.info("Consent page detected; attempting to accept.")
+            if _accept_consent(page):
+                logger.info("Consent accepted.")
+                self._random_pause(_POST_CONSENT_WAIT_RANGE_S)
+            else:
+                logger.warning(
+                    "Consent page detected but no accept control was found "
+                    "among {}; continuing anyway.",
+                    _CONSENT_ACCEPT_SELECTORS,
+                )
+
+        search_box_selector = _find_search_box(page, _SEARCH_BOX_SELECTORS)
+        if search_box_selector is None:
+            raise _SearchBoxNotFound(homepage_url)
+
+        logger.debug("Search box located: '{}'", search_box_selector)
+        page.click(search_box_selector, timeout=self._settings.timeout_seconds * 1000)
+        logger.info("Typing query: '{}'", query)
+        self._type_like_a_human(page, query)
+        logger.info("Pressing Enter.")
+        page.keyboard.press("Enter")
+
+        logger.debug("Waiting for results to load.")
+        self._wait_for_results(page)
+        self._random_pause(_POST_RESULTS_WAIT_RANGE_S)
+
+        logger.debug("Scrolling.")
+        self._scroll_like_a_human(page)
+
+        logger.debug("Current page URL: {}", page.url)
+        logger.debug("Current page title: {}", _safe_title(page))
+
+    def _homepage_url(self) -> str:
+        """The configured target's homepage — derived from
+        `search_url_template`'s own scheme+host, so this stays
+        engine-agnostic (no new, Google-specific setting) exactly like
+        `_robots_allow_search()` already derives that target's robots.txt
+        URL the same way."""
+
+        parsed = urlparse(self._settings.search_url_template)
+        return f"{parsed.scheme}://{parsed.netloc}/"
+
+    def _random_pause(self, bounds: tuple[float, float]) -> None:
+        self._sleep(random.uniform(*bounds))
+
+    def _type_like_a_human(self, page: NavigablePage, query: str) -> None:
+        for character in query:
+            page.keyboard.type(character)
+            self._sleep(random.uniform(*_TYPING_DELAY_RANGE_S))
+
+    def _wait_for_results(self, page: NavigablePage) -> None:
+        try:
+            page.wait_for_selector(
+                self._settings.result_container_selector,
+                timeout=self._settings.timeout_seconds * 1000,
+            )
+        except Exception as exc:  # noqa: BLE001 - absence is handled by the caller
+            logger.debug("wait_for_selector for results did not resolve: {}", exc)
+
+    def _scroll_like_a_human(self, page: NavigablePage) -> None:
+        for _ in range(random.randint(*_SCROLL_STEPS_RANGE)):
+            page.mouse.wheel(0, random.uniform(*_SCROLL_DELTA_RANGE))
+            self._random_pause(_SCROLL_PAUSE_RANGE_S)
 
     def _save_debug_artifacts(
         self, page: NavigablePage, query: str, reason: str
@@ -567,6 +780,44 @@ def _detect_interstitial(page: NavigablePage) -> str | None:
     if "unusual traffic" in html:
         return "unusual_traffic"
     return None
+
+
+def _find_search_box(page: NavigablePage, selectors: Sequence[str]) -> str | None:
+    """The first of `selectors` present on `page`, or None if none match."""
+
+    for selector in selectors:
+        if page.query_selector(selector) is not None:
+            return selector
+    return None
+
+
+def _accept_consent(page: NavigablePage) -> bool:
+    """Click the first matching control in `_CONSENT_ACCEPT_SELECTORS`.
+    Returns whether one was found and clicked. A click that itself raises
+    (element detached, obscured, etc.) is treated the same as "not
+    found" — the next candidate selector is tried rather than propagating
+    the error, since failing to dismiss consent is handled by the caller
+    (logged, then continuing anyway), not fatal to this attempt."""
+
+    for selector in _CONSENT_ACCEPT_SELECTORS:
+        if page.query_selector(selector) is None:
+            continue
+        try:
+            page.click(selector)
+            return True
+        except Exception as exc:  # noqa: BLE001 - try the next candidate selector
+            logger.debug("Could not click consent control '{}': {}", selector, exc)
+    return False
+
+
+def _safe_title(page: NavigablePage) -> str:
+    """`page.title()`, or "" if it can't be read — a logging aid only,
+    never worth failing a search over."""
+
+    try:
+        return page.title()
+    except Exception:  # noqa: BLE001 - logging aid only
+        return ""
 
 
 def _sanitize_for_filename(text: str, max_length: int = 60) -> str:

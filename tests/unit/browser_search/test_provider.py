@@ -192,15 +192,22 @@ def test_partial_status_when_some_queries_fail_and_others_succeed() -> None:
     assert len(response.results) == 1
 
 
-def test_robots_disallow_yields_success_with_no_results_and_no_browser_launch() -> None:
-    browser = FakeBrowser()
+def test_robots_disallow_no_longer_blocks_the_browser_search() -> None:
+    """robots.txt disallowing the target is logged as a warning, not
+    treated as a reason to skip searching — see provider.py's module
+    docstring on why this changed (a human-operated browser session, not
+    an automated crawler)."""
+
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
     provider = _provider(browser, robots_handler=robots_disallow_all_transport)
 
     response = provider.search(_request())
 
     assert response.status is EnrichmentStatus.SUCCESS
-    assert response.results == ()
-    assert browser.pages == []
+    assert len(response.results) > 0
+    assert len(browser.pages) > 0
 
 
 def test_missing_robots_txt_is_treated_as_allowed() -> None:
@@ -385,3 +392,118 @@ def test_interstitial_page_is_treated_as_a_failed_query_with_debug_capture(
     png_files = list(tmp_path.glob("*consent_page*.png"))
     assert len(html_files) == 1
     assert len(png_files) == 1
+
+
+def test_search_opens_the_homepage_not_a_direct_results_url() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    provider.search(_request())
+
+    page = browser.pages[0]
+    assert page.goto_calls == ["https://search.example.org/"]
+
+
+def test_search_types_the_query_character_by_character_and_presses_enter() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    provider.search(_request())
+
+    page = browser.pages[0]
+    assert page.keyboard.typed_text == '"Ada Lovelace"'
+    assert page.keyboard.pressed_keys == ["Enter"]
+
+
+def test_search_clicks_the_search_box_before_typing() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    provider.search(_request())
+
+    page = browser.pages[0]
+    assert page.click_calls == ["textarea[name='q']"]
+
+
+def test_search_performs_randomized_scrolling() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    provider.search(_request())
+
+    page = browser.pages[0]
+    assert 2 <= len(page.mouse.wheel_calls) <= 4
+
+
+def test_search_waits_for_load_state_and_for_the_results_selector() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    settings = build_settings(
+        query_templates=('"{name}"',), result_container_selector="div.result"
+    )
+    provider = _provider(browser, settings=settings)
+
+    provider.search(_request())
+
+    page = browser.pages[0]
+    assert page.wait_for_load_state_calls == 1
+    assert page.wait_for_selector_calls == ["div.result"]
+
+
+def test_consent_page_is_accepted_and_search_continues_to_real_results() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(
+            url="https://consent.google.com/ml?continue=...",
+            html="<html>Before you continue to Google Search</html>",
+            consent_accept_selector="#L2AGLb",
+            post_consent_url="https://search.example.org/search?q=%22Ada+Lovelace%22",
+            post_consent_html="<html><body>real results</body></html>",
+            post_consent_containers=[result_container("Real result", "/a")],
+        )
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    response = provider.search(_request())
+
+    page = browser.pages[0]
+    assert "#L2AGLb" in page.click_calls
+    assert response.status is EnrichmentStatus.SUCCESS
+    assert len(response.results) == 1
+    assert response.results[0].title == "Real result"
+
+
+def test_missing_search_box_is_a_retryable_failure() -> None:
+    browser = FakeBrowser(page_factory=lambda: FakePage(search_box_selector=None))
+    provider = _provider(
+        browser,
+        settings=build_settings(max_retries=0, query_templates=('"{name}"',)),
+    )
+
+    response = provider.search(_request())
+
+    assert response.status is EnrichmentStatus.FAILURE
+    assert "search box" in (response.error_message or "").lower()
+
+
+def test_wait_for_selector_timeout_does_not_abort_the_search() -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(
+            containers=[result_container("Title", "/a")],
+            wait_for_selector_raises=TimeoutError("no results selector yet"),
+        )
+    )
+    provider = _provider(browser, settings=build_settings(query_templates=('"{name}"',)))
+
+    response = provider.search(_request())
+
+    assert response.status is EnrichmentStatus.SUCCESS
+    assert len(response.results) == 1

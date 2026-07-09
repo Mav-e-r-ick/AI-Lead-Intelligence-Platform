@@ -44,6 +44,29 @@ pytestmark = pytest.mark.skipif(
     ),
 )
 
+# The homepage BrowserSearchProvider now opens first (see provider.py's
+# module docstring, "WHY THE HOMEPAGE IS VISITED FIRST"): a plain HTML
+# <form>/<input name="q"> — no JavaScript, deliberately, matching every
+# other fixture in this test suite — that a real browser submits via a
+# real Enter keypress, landing on /search?q=... Uses "input[name='q']"
+# (one of _SEARCH_BOX_SELECTORS's candidates) rather than Google's real
+# "textarea[name='q']": on google.com, Enter-to-submit inside that
+# textarea is wired up by Google's own JavaScript, which a static local
+# fixture has no equivalent for — a plain <input> submits its enclosing
+# form on Enter using nothing but native, JS-free browser behavior, which
+# is what lets this test exercise a REAL click/type/Enter/navigate
+# sequence end to end.
+_HOMEPAGE = """
+<!doctype html>
+<html>
+<body>
+  <form action="/search" method="get">
+    <input name="q" type="search">
+  </form>
+</body>
+</html>
+"""
+
 _RESULTS_PAGE = """
 <!doctype html>
 <html>
@@ -97,33 +120,61 @@ _GOOGLE_SHAPED_RESULTS_PAGE = """
 </html>
 """
 
+# Interstitial pages are served at every path, including "/" — realistic,
+# since Google frequently shows these right at the homepage, before a
+# search is ever submitted, which is exactly what BrowserSearchProvider
+# now visits first. Each still includes a search box: since these test
+# handlers serve the identical interstitial body for every path (a real
+# multi-step "accept consent -> get the real homepage" round trip isn't
+# modeled — the unit tests in tests/unit/browser_search/test_provider.py
+# already cover that precisely and deterministically via FakePage), the
+# search box lets _perform_human_like_search proceed through the full
+# type/Enter/wait/scroll sequence rather than failing early on "no search
+# box found" — landing back on the same interstitial content either way,
+# which _detect_interstitial (checked again after that sequence) still
+# correctly recognizes.
 _CONSENT_PAGE = """
 <!doctype html>
-<html><body><h1>Before you continue to Google Search</h1></body></html>
+<html><body>
+<h1>Before you continue to Google Search</h1>
+<input name="q" type="search">
+</body></html>
 """
 
 _UNUSUAL_TRAFFIC_PAGE = """
 <!doctype html>
 <html><body>
 <p>Our systems have detected unusual traffic from your computer network.</p>
+<input name="q" type="search">
 </body></html>
 """
 
 _CAPTCHA_PAGE = """
 <!doctype html>
-<html><body><form id="captcha-form">solve this puzzle</form></body></html>
+<html><body>
+<form id="captcha-form">solve this puzzle</form>
+<input name="q" type="search">
+</body></html>
 """
 
 
-class _StaticResultsHandler(http.server.BaseHTTPRequestHandler):
-    page_body = _RESULTS_PAGE
-    path_prefix = ""
+class _SearchEngineHandler(http.server.BaseHTTPRequestHandler):
+    """Base handler: "/" serves `homepage_body`, "/search" (and anything
+    else other than /robots.txt) serves `results_body` — the two-page
+    flow BrowserSearchProvider now drives (open homepage, submit the
+    form, land on results). Subclasses that only need a single page for
+    every path (the interstitial handlers) set both to the same body."""
+
+    homepage_body = _HOMEPAGE
+    results_body = _RESULTS_PAGE
 
     def do_GET(self) -> None:  # noqa: N802 - required name by http.server
         if self.path == "/robots.txt":
             body = b"User-agent: *\nAllow: /\n"
+        elif self.path == "/" or self.path == "":
+            body = type(self).homepage_body.encode("utf-8")
         else:
-            body = type(self).page_body.encode("utf-8")
+            body = type(self).results_body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -134,20 +185,29 @@ class _StaticResultsHandler(http.server.BaseHTTPRequestHandler):
         pass  # keep test output quiet
 
 
-class _GoogleShapedResultsHandler(_StaticResultsHandler):
-    page_body = _GOOGLE_SHAPED_RESULTS_PAGE
+class _StaticResultsHandler(_SearchEngineHandler):
+    homepage_body = _HOMEPAGE
+    results_body = _RESULTS_PAGE
 
 
-class _ConsentPageHandler(_StaticResultsHandler):
-    page_body = _CONSENT_PAGE
+class _GoogleShapedResultsHandler(_SearchEngineHandler):
+    homepage_body = _HOMEPAGE
+    results_body = _GOOGLE_SHAPED_RESULTS_PAGE
 
 
-class _UnusualTrafficPageHandler(_StaticResultsHandler):
-    page_body = _UNUSUAL_TRAFFIC_PAGE
+class _ConsentPageHandler(_SearchEngineHandler):
+    homepage_body = _CONSENT_PAGE
+    results_body = _CONSENT_PAGE
 
 
-class _CaptchaPageHandler(_StaticResultsHandler):
-    page_body = _CAPTCHA_PAGE
+class _UnusualTrafficPageHandler(_SearchEngineHandler):
+    homepage_body = _UNUSUAL_TRAFFIC_PAGE
+    results_body = _UNUSUAL_TRAFFIC_PAGE
+
+
+class _CaptchaPageHandler(_SearchEngineHandler):
+    homepage_body = _CAPTCHA_PAGE
+    results_body = _CAPTCHA_PAGE
 
 
 def _run_server(handler: type[http.server.BaseHTTPRequestHandler]) -> object:

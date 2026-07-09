@@ -15,13 +15,17 @@ result's destination page.
 set of search queries (reusing `google_search`'s query-template engine
 directly), launch the operator's real Chrome against their real profile
 (`launch_persistent_context()`, cookies/history/signed-in state intact),
-navigate to a configured search-results URL per query, detect consent/
-CAPTCHA/"unusual traffic" interstitial pages before attempting extraction,
-extract up to `max_results` results per query via configured CSS
-selectors, retry transient navigation failures, cache each query's
-results, log every stage, save debug artifacts (HTML + screenshot)
-whenever a query doesn't yield real results, and check the search
-engine's own `robots.txt` before ever navigating there.
+and — per query — search the way a person would: open the target's
+homepage, wait for it, accept a consent dialog if one appears, click the
+search box, type the query with randomized per-character delays, press
+Enter, wait for results, and scroll a little before extraction (see "How
+the human-like search flow works," below). Detects consent/CAPTCHA/
+"unusual traffic" interstitial pages, extracts up to `max_results` results
+per query via configured CSS selectors, retries transient navigation
+failures, caches each query's results, logs every stage, saves debug
+artifacts (HTML + screenshot) whenever a query doesn't yield real results,
+and checks (but no longer acts on) the search engine's own `robots.txt` —
+see "Why robots.txt is checked but no longer blocks execution," below.
 
 **Does not:** interpret a result's meaning, extract observations, or
 fetch/crawl a result's *destination* page — that boundary is deliberate
@@ -52,19 +56,65 @@ robots.txt/legal exposure than fetching a company's own homepage
 The only page this class itself ever navigates to is the configured
 search engine's own results page.
 
-## Why robots.txt is checked against the search engine's own domain
+## Why robots.txt is checked but no longer blocks execution (changed)
 
-Following directly from the above: the one page this provider crawls is
-the search results page itself, so that's the one place "respect
-robots.txt for pages you crawl" applies to this class. Checked once per
-provider instance (the domain never changes for a given instance), via a
-plain HTTP request — never the browser — using the same
-`RobotFileParser.can_fetch(user_agent, url)` pattern
-`CompanyWebsiteProvider` already uses. A robots.txt that disallows the
-configured URL results in `EnrichmentStatus.SUCCESS` with zero results
-(compliance is not a failure) and the browser is never launched at all
-for that `search()` call. A missing/unreachable robots.txt is treated as
-"no restrictions" — the standard crawler convention.
+`_robots_allow_search()`/`_can_fetch_configured_url()` are unchanged —
+still one plain HTTP request per provider instance (never the browser),
+still `RobotFileParser.can_fetch(user_agent, url)`, still "missing/
+unreachable robots.txt means no restrictions." What changed is what
+`search()` *does* with the answer: previously, a disallowed target made
+it return immediately with `EnrichmentStatus.SUCCESS` and zero results,
+without ever launching the browser. Now it only logs a `WARNING` and
+proceeds. This is a deliberate choice: robots.txt is a convention aimed
+at automated crawlers, and this provider now drives the operator's own,
+real, signed-in browser through the same interaction sequence a human
+uses — not a bot hitting the target programmatically. It is still your
+responsibility to confirm you're authorized to automate your chosen
+target (and that doing so doesn't violate its Terms of Service, which is
+a separate question from robots.txt) before relying on this.
+
+## How the human-like search flow works
+
+`_search_single_query()` no longer navigates straight to a pre-built
+results URL. Instead, `_perform_human_like_search()` drives the page
+through the same steps a person takes, before `extract_results()` (from
+`extraction.py`, itself unchanged) ever runs:
+
+1. Open the target's homepage — derived from `search_url_template`'s own
+   scheme+host (e.g. `https://www.google.com/search?q={query}` →
+   `https://www.google.com/`), so this needed no new, Google-specific
+   setting.
+2. Wait for it to load (`wait_for_load_state`), then a randomized pause.
+3. If `_detect_interstitial()` reports a consent page, try clicking a
+   known "accept" control (`_CONSENT_ACCEPT_SELECTORS` — Google's own
+   long-stable `#L2AGLb` id, plus a couple of generic-wording fallbacks).
+   Logs a warning and continues either way — a consent page that
+   couldn't be dismissed is still caught by the interstitial check in
+   step 7.
+4. Locate the search box (`_SEARCH_BOX_SELECTORS` — Google's current
+   `textarea[name='q']`, its legacy `input[name='q']`, and the generic
+   `input[type='search']` most other engines use), click it.
+5. Type the query one character at a time with a randomized delay per
+   character (`_TYPING_DELAY_RANGE_S`), then press Enter.
+6. Wait for the configured `result_container_selector` to appear
+   (`wait_for_selector`, tolerant of a timeout — absence is handled by
+   the interstitial check/`extract_results()` that follow, not treated
+   as fatal here), then a randomized pause.
+7. A small, randomized number of scroll steps (`page.mouse.wheel`).
+
+Back in `_search_single_query()`: `_detect_interstitial()` is checked
+again — a consent page that couldn't be dismissed, or a CAPTCHA/"unusual
+traffic" page that appeared only after submitting the search, is still
+funneled into the exact same retry-then-fail path as before (via
+`_InterstitialPageDetected`), with debug artifacts saved the same way. A
+homepage with no recognizable search box raises `_SearchBoxNotFound`,
+which is handled identically to a navigation timeout — retried, then
+reported as this query's failure reason.
+
+None of the randomized delay ranges or the selector lists above are
+settings — see "Only change what is necessary" in this feature's task
+description; they're module-level constants in `provider.py`, easy to
+promote to settings later if an operator needs to tune them.
 
 ## Why query building reuses `google_search.query_builder.build_queries`
 
@@ -209,7 +259,7 @@ finally:
 |---|---|
 | `FAILURE` | No executive name was available, no queries could be built, or every query genuinely failed (after retries). |
 | `PARTIAL` | At least one query succeeded and at least one query failed. |
-| `SUCCESS` | Every query succeeded — including robots.txt disallowing the search engine, and the legitimate empty case of "no results found." |
+| `SUCCESS` | Every query succeeded, including the legitimate empty case of "no results found." (robots.txt disallowing the target no longer forces this on its own — see "Why robots.txt is checked but no longer blocks execution.") |
 
 ## Files
 
