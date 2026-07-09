@@ -70,6 +70,10 @@ data/processed/*
 reports/*
 !reports/.gitkeep
 
+# run_pipeline.py's own results.xlsx / processing_report.json / logs/
+# output carries the same PII risk as reports/ above -- never committed.
+run_output/
+
 # --- IDE / editor ------------------------------------------------------
 .vscode/
 .idea/
