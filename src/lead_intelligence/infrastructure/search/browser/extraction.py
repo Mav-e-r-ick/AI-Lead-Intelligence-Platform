@@ -27,6 +27,8 @@ from __future__ import annotations
 from typing import Protocol, Sequence
 from urllib.parse import urljoin
 
+from loguru import logger
+
 from lead_intelligence.application.dto.search_models import SearchResult
 from lead_intelligence.infrastructure.search.browser.settings import (
     BrowserSearchProviderSettings,
@@ -71,19 +73,30 @@ def extract_results(
         towards the limit.
     """
 
+    containers = list(page.query_selector_all(settings.result_container_selector))
+    logger.debug(
+        "Result container selector '{}' matched {} element(s) on {}",
+        settings.result_container_selector,
+        len(containers),
+        page.url,
+    )
+
     results: list[SearchResult] = []
-    for container in page.query_selector_all(settings.result_container_selector):
+    skipped = 0
+    for container in containers:
         if len(results) >= settings.max_results:
             break
 
         title_element = container.query_selector(settings.title_selector)
         url_element = container.query_selector(settings.url_selector)
         if title_element is None or url_element is None:
+            skipped += 1
             continue
 
         title = (title_element.inner_text() or "").strip()
         href = (url_element.get_attribute("href") or "").strip()
         if not title or not href:
+            skipped += 1
             continue
         url = urljoin(page.url, href)
 
@@ -102,5 +115,28 @@ def extract_results(
                 rank=len(results) + 1,
             )
         )
+
+    if not results:
+        if not containers:
+            logger.warning(
+                "Result container selector '{}' matched 0 elements on {} — either "
+                "the page did not render results (rate limiting/bot detection/a "
+                "changed template) or the selector no longer matches this page's "
+                "markup.",
+                settings.result_container_selector,
+                page.url,
+            )
+        else:
+            logger.warning(
+                "Result container selector '{}' matched {} element(s) on {}, but "
+                "{} of them had no usable title ('{}') and URL ('{}') — those "
+                "selectors likely no longer match this page's markup.",
+                settings.result_container_selector,
+                len(containers),
+                page.url,
+                skipped,
+                settings.title_selector,
+                settings.url_selector,
+            )
 
     return tuple(results)

@@ -29,6 +29,10 @@ def build_settings(**overrides: object) -> BrowserSearchProviderSettings:
         "title_selector": "h3",
         "url_selector": "a",
         "snippet_selector": "p.snippet",
+        # Disabled by default so tests that don't care about debug-artifact
+        # saving never write files to the real filesystem; tests that do
+        # care override this explicitly (e.g. with pytest's tmp_path).
+        "debug_dir": "",
     }
     defaults.update(overrides)
     return BrowserSearchProviderSettings(**defaults)  # type: ignore[arg-type]
@@ -86,12 +90,15 @@ class FakePage:
         containers: list[FakeElement] | None = None,
         url: str = "https://search.example.org/search?q=test",
         goto_raises: Exception | None = None,
+        html: str = "<html><body>fake page</body></html>",
     ) -> None:
         self._containers = containers or []
         self.url = url
         self._goto_raises = goto_raises
+        self._html = html
         self.goto_calls: list[str] = []
         self.closed = False
+        self.screenshot_paths: list[str] = []
 
     def query_selector_all(self, selector: str) -> list[FakeElement]:
         return self._containers
@@ -103,6 +110,16 @@ class FakePage:
 
     def close(self) -> None:
         self.closed = True
+
+    def content(self) -> str:
+        return self._html
+
+    def screenshot(self, path: str) -> None:
+        self.screenshot_paths.append(path)
+        # A real Playwright screenshot() writes an actual file; match that
+        # so tests can assert on the file existing, not just the call.
+        with open(path, "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n")
 
 
 class FakeBrowser:

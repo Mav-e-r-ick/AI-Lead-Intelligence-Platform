@@ -5,6 +5,7 @@ real browser or touches the real network."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 import httpx
@@ -261,3 +262,44 @@ def test_close_is_safe_when_the_browser_was_never_launched() -> None:
     provider = _provider(FakeBrowser())
 
     provider.close()  # must not raise
+
+
+def test_zero_results_saves_debug_html_and_screenshot(tmp_path: Path) -> None:
+    browser = FakeBrowser(page_factory=lambda: FakePage(containers=[]))
+    provider = _provider(
+        browser,
+        settings=build_settings(
+            query_templates=('"{name}"',), debug_dir=str(tmp_path)
+        ),
+    )
+
+    provider.search(_request())
+
+    html_files = list(tmp_path.glob("*.html"))
+    png_files = list(tmp_path.glob("*.png"))
+    assert len(html_files) == 1
+    assert len(png_files) == 1
+    assert html_files[0].read_text() == "<html><body>fake page</body></html>"
+
+
+def test_debug_artifacts_not_saved_when_results_are_found(tmp_path: Path) -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(containers=[result_container("Title", "/a")])
+    )
+    provider = _provider(browser, settings=build_settings(debug_dir=str(tmp_path)))
+
+    provider.search(_request())
+
+    assert list(tmp_path.glob("*")) == []
+
+
+def test_blank_debug_dir_disables_saving(tmp_path: Path) -> None:
+    browser = FakeBrowser(page_factory=lambda: FakePage(containers=[]))
+    provider = _provider(
+        browser,
+        settings=build_settings(query_templates=('"{name}"',), debug_dir=""),
+    )
+
+    provider.search(_request())
+
+    assert list(tmp_path.glob("*")) == []

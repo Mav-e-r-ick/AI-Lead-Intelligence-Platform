@@ -92,6 +92,36 @@ there is no `__del__`-based cleanup.
 | `headless` | Always `True` in production; togglable for local debugging. |
 | `user_agent` | Sent as the browser's User-Agent, and checked against robots.txt. |
 | `executable_path` | Optional explicit Chromium binary path, overriding Playwright's own resolution (see "Running the real end-to-end test," below, for when you need this). |
+| `debug_dir` | Directory a query's rendered HTML + a screenshot are saved to whenever its selectors yield zero results (page loaded, but nothing matched). Blank disables saving. Default: `"browser_search_debug"`. |
+
+## Diagnosing "0 results" on a real page
+
+The page loading successfully does not mean the configured selectors still
+match it: search engines change their markup, and some serve a
+normal-looking but empty/bot-check page to automated clients. Two things
+make this diagnosable without re-running under a debugger:
+
+1. **Logging** (`extraction.py`): every zero-result extraction logs
+   *which* selector produced nothing — "the container selector matched 0
+   elements" (the page didn't render results, or `result_container_selector`
+   is stale) versus "the container selector matched N elements, but none
+   had a usable title/URL" (`title_selector`/`url_selector` is stale).
+2. **Saved artifacts** (`debug_dir`, provider.py's `_save_debug_artifacts`):
+   the exact rendered HTML and a screenshot for that query, timestamped, so
+   you can open them and compare against the configured selectors directly
+   — see `.env.local.example`'s `BROWSER_SEARCH_DEBUG_DIR`.
+
+`tests/integration/test_browser_search_e2e.py`'s
+`test_real_browser_collects_results_using_the_configured_duckduckgo_selectors`
+regression-guards the exact selectors `.env.local.example` ships
+(`.result` / `.result__a` / `.result__snippet`) against a real headless
+browser and a page shaped like DuckDuckGo's actual
+`html.duckduckgo.com/html/` markup — run it with `RUN_BROWSER_SEARCH_E2E=1`
+(see "Running the real end-to-end test," below). If a real, live
+DuckDuckGo search still returns 0 results after this passes, the page
+DuckDuckGo served that day differs from this fixture (a template change, or
+a bot-check/rate-limit response) — the saved HTML/screenshot from `debug_dir`
+will show which.
 
 ## Environment variables
 

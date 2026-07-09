@@ -49,6 +49,7 @@ BROWSER_SEARCH_SNIPPET_SELECTOR_ENV_VAR = "BROWSER_SEARCH_SNIPPET_SELECTOR"
 BROWSER_SEARCH_MAX_RESULTS_ENV_VAR = "BROWSER_SEARCH_MAX_RESULTS"
 BROWSER_SEARCH_HEADLESS_ENV_VAR = "BROWSER_SEARCH_HEADLESS"
 BROWSER_SEARCH_EXECUTABLE_PATH_ENV_VAR = "BROWSER_SEARCH_EXECUTABLE_PATH"
+BROWSER_SEARCH_DEBUG_DIR_ENV_VAR = "BROWSER_SEARCH_DEBUG_DIR"
 
 #: The `{query}` placeholder every search_url_template must contain — the
 #: fully-built query string (after query_templates substitution) is
@@ -105,6 +106,15 @@ class BrowserSearchProviderSettings:
             when a pre-installed browser lives somewhere Playwright
             doesn't expect (see this package's README for when you need
             this).
+        debug_dir: Directory a query's rendered page HTML and a
+            screenshot are saved to whenever that query's selectors yield
+            zero results (the page loaded, but nothing matched
+            `result_container_selector`/`title_selector`/`url_selector`).
+            This is what makes "the search engine changed its markup" or
+            "the search engine served a bot-check/empty page" diagnosable
+            after the fact, without re-running with a debugger attached.
+            Blank disables saving. Default: "browser_search_debug"
+            (created if missing).
     """
 
     search_url_template: str
@@ -125,6 +135,7 @@ class BrowserSearchProviderSettings:
         "AILeadIntelligenceBot/1.0 (+https://example.com/bot; search research)"
     )
     executable_path: str | None = None
+    debug_dir: str = "browser_search_debug"
 
     def validate(self) -> None:
         """Raise ValueError if this settings object is self-contradictory.
@@ -233,5 +244,8 @@ class BrowserSearchProviderSettings:
         executable_path = source.get(BROWSER_SEARCH_EXECUTABLE_PATH_ENV_VAR)
         if executable_path:
             kwargs["executable_path"] = executable_path
+        debug_dir = source.get(BROWSER_SEARCH_DEBUG_DIR_ENV_VAR)
+        if debug_dir is not None:
+            kwargs["debug_dir"] = debug_dir
         kwargs.update(overrides)
         return cls(**kwargs)  # type: ignore[arg-type]

@@ -58,8 +58,10 @@ does not rely on it anywhere else).
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import quote_plus, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -96,11 +98,17 @@ PROVIDER_ID = "browser_search"
 
 class NavigablePage(PageLike, Protocol):
     """The subset of Playwright's `Page` this provider needs beyond what
-    extraction.py already requires (PageLike): actually navigating."""
+    extraction.py already requires (PageLike): actually navigating, plus
+    (for zero-result debugging, see `_save_debug_artifacts`) reading back
+    the rendered HTML and taking a screenshot."""
 
     def goto(self, url: str, timeout: float | None = None) -> object: ...
 
     def close(self) -> None: ...
+
+    def content(self) -> str: ...
+
+    def screenshot(self, path: str) -> object: ...
 
 
 class BrowserLike(Protocol):
@@ -355,6 +363,8 @@ class BrowserSearchProvider(SearchProviderPort):
                 page = self._get_browser().new_page()
                 page.goto(url, timeout=self._settings.timeout_seconds * 1000)
                 results = extract_results(page, self._settings, source=self.provider_id)
+                if not results:
+                    self._save_debug_artifacts(page, query)
             except Exception as exc:  # noqa: BLE001 - any navigation failure is retried
                 logger.warning(
                     "Error searching '{}' (attempt {}/{}): {}",
@@ -377,6 +387,38 @@ class BrowserSearchProvider(SearchProviderPort):
             return results
 
         return None
+
+    def _save_debug_artifacts(self, page: NavigablePage, query: str) -> None:
+        """Save the rendered page's HTML and a screenshot when a query's
+        selectors yielded zero results, so a stale selector or a bot-
+        check/rate-limit page (page loads, but has no real results) can be
+        told apart after the fact — see settings.debug_dir. Best-effort:
+        a failure here must never take down an otherwise-successful
+        search, so any error is logged and swallowed, not raised.
+        """
+
+        if not self._settings.debug_dir:
+            return
+        try:
+            debug_dir = Path(self._settings.debug_dir)
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            stem = (
+                f"{self._clock().strftime('%Y%m%dT%H%M%S%f')}_"
+                f"{_sanitize_for_filename(query)}"
+            )
+            html_path = debug_dir / f"{stem}.html"
+            screenshot_path = debug_dir / f"{stem}.png"
+            html_path.write_text(page.content(), encoding="utf-8")
+            page.screenshot(path=str(screenshot_path))
+            logger.warning(
+                "Zero results for '{}' — saved page HTML to {} and a screenshot "
+                "to {} for selector debugging.",
+                query,
+                html_path,
+                screenshot_path,
+            )
+        except Exception as exc:  # noqa: BLE001 - a debugging aid must never break search
+            logger.debug("Could not save debug artifacts for '{}': {}", query, exc)
 
     def _get_browser(self) -> BrowserLike:
         if self._browser is None:
@@ -432,6 +474,14 @@ class BrowserSearchProvider(SearchProviderPort):
             return True
         example_url = self._settings.search_url_template.format(query="")
         return self._robots_parser.can_fetch(self._settings.user_agent, example_url)
+
+
+def _sanitize_for_filename(text: str, max_length: int = 60) -> str:
+    """A version of `text` safe to use as (part of) a filename on both
+    POSIX and Windows: only word characters, spaces, and hyphens survive."""
+
+    cleaned = re.sub(r"[^\w\s-]", "", text).strip().replace(" ", "_")
+    return cleaned[:max_length] or "query"
 
 
 def _executive_name(request: SearchRequest) -> str:
