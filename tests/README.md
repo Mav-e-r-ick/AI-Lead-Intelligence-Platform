@@ -244,6 +244,27 @@ sitting right next to the code it tests for easy navigation.
   `infrastructure/search/browser/README.md` for exact instructions,
   including the `BROWSER_SEARCH_EXECUTABLE_PATH` override some
   environments need.
+- `unit/search_extraction/` covers the Search Extraction Engine:
+  `fixtures.py` (an httpx mock-transport routing table, HTML page
+  builders, and a flaky-then-recovering handler — no test here ever
+  touches the real network), `test_settings.py`
+  (`SearchExtractionSettings` validation), `test_page_fetcher.py`
+  (PDF-URL skip without any request, PDF-Content-Type discard,
+  robots.txt allow/disallow/missing, robots.txt fetched once per domain,
+  retry-then-succeed and retry-exhausted behavior, 4xx never retried,
+  page-cache reuse), `test_content_extraction.py` (title and `og:title`
+  fallback, script/style/noscript/template stripping, whitespace
+  collapse, `max_text_chars` truncation, publication-date meta variants
+  reported verbatim and never parsed, malformed HTML tolerance),
+  `test_fact_extraction.py` (every named fact pattern's fire and no-fire
+  behavior, title-before-text scan order, lowercase prose never matching
+  a name, and determinism), and `test_engine.py` (end-to-end: an
+  announcement page yielding `web_page` + `full_name`/`title`/
+  `company_name` candidates, subject_id/engine-id/source-URL stamping,
+  the raw snippet preserved verbatim in `raw_context`, provenance and
+  excerpt bounding, unmatched pages still yielding their `web_page`
+  candidate, unreachable/PDF results yielding nothing, one bad result
+  never stopping the rest, and multi-result aggregation order).
 
 ## Running the tests
 ```bash

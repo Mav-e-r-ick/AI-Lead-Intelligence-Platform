@@ -11,7 +11,7 @@ messages, and send them after human review.
 > Engine (V1) + Contact Verification Framework (V1) + NeverBounce Email
 > Provider (V1) + Google Search Provider (V1) + Executive Processing
 > Pipeline (V1) + Evaluation & Validation Module (V1) + Search Layer (V1)
-> + Browser Search Provider (V1).** The project structure, configuration, and wiring are in
+> + Browser Search Provider (V1) + Search Extraction Engine (V1).** The project structure, configuration, and wiring are in
 > place. The **Import Engine** (reading Excel files into plain, unmodified
 > records — see
 > [`infrastructure/importers/README.md`](src/lead_intelligence/infrastructure/importers/README.md))
@@ -136,7 +136,19 @@ messages, and send them after human review.
 > operator must supply and be authorized to use their own target). Not
 > yet wired into the Executive Processing Pipeline — a deliberate,
 > separate follow-up, the same sequencing this platform already followed
-> for Company Website and Google Search themselves. No ORM
+> for Company Website and Google Search themselves. The **Search
+> Extraction Engine (Version 1)** (`infrastructure/search/extraction/`)
+> completes the RFC's pipeline: it turns `SearchResult` URLs into
+> structured `ObservationCandidate`s — downloading each destination page
+> (respecting that domain's own robots.txt; PDFs skipped in V1),
+> extracting the page title, visible text, and declared publication date
+> via deterministic HTML parsing, and extracting executive
+> name/title/company via a small, named set of rule-based announcement
+> patterns (each extracted fact traceable to the exact rule that produced
+> it) — no AI, no LLM, no guessing: unmatched pages yield only their
+> `web_page` evidence candidate (see
+> [`infrastructure/search/extraction/README.md`](src/lead_intelligence/infrastructure/search/extraction/README.md)).
+> Also not yet wired into the Executive Processing Pipeline. No ORM
 > models, concrete repositories, or tables exist yet, and Identity
 > Resolution's lineage redirects, rollback windows, and full reviewer
 > workflow are explicitly Version 2 — both deliberately deferred to future
@@ -250,8 +262,9 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── enrichment/        # Enrichment providers — see enrichment/company_website/README.md
 │       │   │   ├── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
 │       │   │   └── google_search/   # GoogleSearchProvider (V1) — configurable queries, retry/timeout/cache, web_mention observations
-│       │   ├── search/            # Search providers — see search/browser/README.md
-│       │   │   └── browser/         # BrowserSearchProvider (V1) — Playwright, configurable engine/selectors, robots.txt, retry/timeout/cache
+│       │   ├── search/            # Search providers + extraction — see search/browser/README.md
+│       │   │   ├── browser/         # BrowserSearchProvider (V1) — Playwright, configurable engine/selectors, robots.txt, retry/timeout/cache
+│       │   │   └── extraction/      # SearchExtractionEngine (V1) — SearchResult URLs -> ObservationCandidates, rule-based, no AI
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
 │       │       │   └── neverbounce/  # NeverBounceEmailProvider (V1) — retry/timeout, full result mapping
@@ -283,7 +296,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   ├── executive_pipeline/     # Executive Processing Pipeline unit tests
     │   ├── evaluation/             # Evaluation & Validation Module unit tests
     │   ├── search/                 # Search Layer framework unit tests
-    │   └── browser_search/         # BrowserSearchProvider unit tests (mocked Playwright)
+    │   ├── browser_search/         # BrowserSearchProvider unit tests (mocked Playwright)
+    │   └── search_extraction/      # Search Extraction Engine unit tests (mocked HTTP)
     ├── integration/               # Tests spanning multiple pieces
     │   ├── test_health.py          # Proves the foundation runs and the database is reachable
     │   ├── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
@@ -445,8 +459,21 @@ order the project brief lists them:
     new business logic, no observation extraction, no page-fetching
     beyond the search engine's own results page. Not yet wired into the
     Executive Processing Pipeline — a deliberate, separate follow-up.
-12. Generate AI-personalized outreach messages.
-13. Send emails after a human review step.
+12. ✅ Turn found URLs into structured evidence — the **Search Extraction
+    Engine (Version 1)** (`infrastructure/search/extraction/`):
+    `SearchExtractionEngine` converts `SearchResult`s into
+    `ObservationCandidate`s by downloading each destination page
+    (per-domain robots.txt, retry/timeout/caching; PDFs skipped in V1),
+    extracting the page title, visible text, and declared publication
+    date via deterministic HTML parsing (BeautifulSoup), and extracting
+    executive name/title/company via named, rule-based announcement
+    patterns — every fetched page yields a `web_page` evidence candidate
+    (raw search snippet preserved verbatim), every extracted fact is
+    traceable to the exact pattern that produced it, and nothing is ever
+    guessed. No AI, no LLM. Not yet wired into the Executive Processing
+    Pipeline — same deliberate sequencing as every prior engine.
+13. Generate AI-personalized outreach messages.
+14. Send emails after a human review step.
 
 ## Handling sensitive data
 
