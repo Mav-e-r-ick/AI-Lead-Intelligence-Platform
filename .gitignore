@@ -73,7 +73,12 @@ reports/*
 
 # run_pipeline.py's own results.xlsx / processing_report.json / logs/
 # output carries the same PII risk as reports/ above -- never committed.
+# run_output_eval/ (and any other run_output_*/ variant used for ad hoc
+# evaluation runs) and evaluation_report.md carry the same risk -- they're
+# generated from, and quote, the same real executive/company data.
 run_output/
+run_output_*/
+evaluation_report.md
 
 # --- IDE / editor ------------------------------------------------------
 .vscode/
