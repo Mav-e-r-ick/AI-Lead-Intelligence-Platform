@@ -1,0 +1,38 @@
+# ============================================================================
+# pyproject.toml
+# ============================================================================
+# WHY THIS FILE EXISTS:
+# The application code lives under src/lead_intelligence/ (a "src layout").
+# Without a packaging file, "import lead_intelligence" only resolves when
+# the interpreter happens to have src/ on sys.path — which is not true by
+# default from the repository root, so setup_local.py / run_local.py /
+# run_pipeline.py / pytest all fail with
+# "ModuleNotFoundError: No module named 'lead_intelligence'" unless someone
+# manually sets PYTHONPATH first.
+#
+# This file turns lead_intelligence into a normal, installable Python
+# package. One-time setup:
+#     pip install -e .
+# installs it in "editable" mode — Python resolves "import lead_intelligence"
+# from src/lead_intelligence/ from then on, from any working directory, with
+# no PYTHONPATH needed, and edits to the source take effect immediately
+# without reinstalling.
+#
+# Third-party runtime dependencies stay in requirements.txt (already the
+# single source of truth for those, with per-package rationale comments) —
+# this file is deliberately limited to packaging metadata and does not
+# duplicate that dependency list.
+# ============================================================================
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-lead-intelligence-platform"
+version = "0.1.0"
+description = "Executive lead intelligence platform: import, clean, enrich, compare, and detect inflection events for executive records."
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]

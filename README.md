@@ -195,6 +195,12 @@ source .venv/bin/activate        # On Windows: .venv\Scripts\activate
 # 2. Install dependencies.
 pip install -r requirements.txt -r requirements-dev.txt
 
+# 2b. Install this project itself in editable mode. The app code lives
+#     under src/lead_intelligence/ (a "src layout") — this is what makes
+#     "import lead_intelligence" resolve from any working directory, with
+#     no PYTHONPATH to set by hand. One time per environment.
+pip install -e .
+
 # 3. Copy the example environment file and fill in real values later.
 cp .env.example .env
 
@@ -350,6 +356,7 @@ top-level table is the map; the per-folder READMEs are the terrain.
 | File | Purpose |
 |---|---|
 | `requirements.txt` | Every third-party package the *running app* needs, grouped by which future feature it supports, with comments explaining each choice. Install with `pip install -r requirements.txt`. |
+| `pyproject.toml` | Packaging metadata that makes `lead_intelligence` (under `src/`) an installable package — `pip install -e .` is what lets `import lead_intelligence` resolve from any working directory, with no `PYTHONPATH` needed. |
 | `requirements-dev.txt` | Additional packages needed only for development (pytest, black, ruff, mypy, pre-commit) — never installed on a production server. |
 | `.gitignore` | Prevents secrets (`.env`), generated files (`__pycache__`, caches), local databases, and — importantly — real lead data (`data/raw`, `data/processed`) from ever being committed to git. |
 | `.env.example` | A checked-in template listing every environment variable the app will use, with placeholder (fake) values. Copy it to `.env` and fill in real secrets locally; `.env` itself is gitignored. |

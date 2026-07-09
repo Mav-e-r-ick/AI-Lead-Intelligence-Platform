@@ -10,7 +10,17 @@ Playwright installation, `.env.local` configuration, the pre-flight
 ```bash
 pip install -r requirements.txt
 pip install -r requirements-dev.txt   # only if you'll also run tests/linters
+pip install -e .
 ```
+
+The last line matters: the application code lives under `src/lead_intelligence/`
+(a "src layout"), and `pip install -e .` (using `pyproject.toml`) is what
+makes `import lead_intelligence` resolve from any working directory, with no
+`PYTHONPATH` to set by hand — this is what `setup_local.py`, `run_local.py`,
+and `run_pipeline.py` all rely on. Run it once per environment (or after
+pulling changes that touch `src/lead_intelligence`'s package structure — an
+editable install stays in sync with source edits automatically, no reinstall
+needed for ordinary code changes).
 
 ## 2. Install Playwright's browser
 
@@ -65,12 +75,13 @@ authorized to do so under its terms of service — the same rule
 python setup_local.py
 ```
 
-Checks, in order: Python version, Playwright installed, a matching
-Chromium browser installed, internet connectivity, DNS resolution,
-`BrowserSearchProvider` configuration, and that the output directory is
-writable. Each line is `[PASS]`, `[WARN]` (an optional feature will be
-degraded or skipped, the rest of the pipeline still runs), or `[FAIL]`
-(fix this first). Exits non-zero only on a `[FAIL]`.
+Checks, in order: Python version, `lead_intelligence` package installed,
+Playwright installed, a matching Chromium browser installed, internet
+connectivity, DNS resolution, `BrowserSearchProvider` configuration, and
+that the output directory is writable. Each line is `[PASS]`, `[WARN]` (an
+optional feature will be degraded or skipped, the rest of the pipeline
+still runs), or `[FAIL]` (fix this first). Exits non-zero only on a
+`[FAIL]`.
 
 `run_local.py` (next section) runs these same checks automatically before
 every run — you don't have to run this by hand, but it's useful on its own
@@ -119,6 +130,12 @@ Off by default.
 
 ## Troubleshooting
 
+**`ModuleNotFoundError: No module named 'lead_intelligence'`** — the
+package hasn't been installed yet. Run `pip install -e .` from the
+repository root (step 1 above) and try again. This is a one-time step per
+environment; it is not something you should ever need to work around by
+setting `PYTHONPATH` by hand.
+
 **"It looks like you are using Playwright Sync API inside the asyncio
 loop."** — This is Playwright's own error when a second browser-launch
 attempt starts after an earlier one failed mid-launch in the same
@@ -149,6 +166,7 @@ default.
 
 | File | Purpose |
 |---|---|
+| `pyproject.toml` | Makes `lead_intelligence` (under `src/`) an installable package — `pip install -e .` is what lets `import lead_intelligence` resolve with no `PYTHONPATH` needed. Packaging metadata only; runtime dependencies stay in `requirements.txt`. |
 | `.env.local.example` | Checked-in sample `BrowserSearchProvider` (DuckDuckGo) + Development Mode configuration for local runs. Copy to `.env.local` (gitignored) to use. |
 | `setup_local.py` | Pre-flight environment verification — no business logic, only checks. |
 | `run_local.py` | Loads `.env.local`, runs `setup_local.py`'s checks, then delegates to `run_pipeline.py`. Contains no pipeline logic of its own. |

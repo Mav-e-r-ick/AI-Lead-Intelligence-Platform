@@ -8,14 +8,16 @@ Usage:
 
 Checks, in order:
     1. Python version
-    2. Playwright installed
-    3. A Chromium browser Playwright can launch is installed
-    4. Internet connectivity (a real TCP connection, no HTTP request)
-    5. DNS resolution (the configured BrowserSearchProvider host, if any,
+    2. lead_intelligence package installed (editable install; see
+       pyproject.toml)
+    3. Playwright installed
+    4. A Chromium browser Playwright can launch is installed
+    5. Internet connectivity (a real TCP connection, no HTTP request)
+    6. DNS resolution (the configured BrowserSearchProvider host, if any,
        else a well-known public host)
-    6. BrowserSearchProvider configuration
+    7. BrowserSearchProvider configuration
        (BrowserSearchProviderSettings.from_env().validate())
-    7. Output directory exists (or can be created) and is writable
+    8. Output directory exists (or can be created) and is writable
 
 Each check reports PASS, WARN, or FAIL with a one-line reason. FAIL means
 run_local.py/run_pipeline.py cannot do meaningful work until it's fixed;
@@ -87,6 +89,25 @@ def check_python_version() -> CheckResult:
         "FAIL",
         f"{version.major}.{version.minor}.{version.micro} is older than the "
         f"required {MIN_PYTHON[0]}.{MIN_PYTHON[1]}.",
+    )
+
+
+def check_package_installed() -> CheckResult:
+    try:
+        import lead_intelligence
+    except ImportError:
+        return CheckResult(
+            "lead_intelligence package installed",
+            "FAIL",
+            "Not importable. This project uses a src/ layout — install it "
+            "as an editable package (one time, from the repository root): "
+            "pip install -e .",
+        )
+    return CheckResult(
+        "lead_intelligence package installed",
+        "PASS",
+        f"lead_intelligence=={lead_intelligence.__version__} "
+        f"({Path(lead_intelligence.__file__).parent})",
     )
 
 
@@ -198,9 +219,17 @@ def check_dns_resolution() -> CheckResult:
 
 
 def check_browser_search_configuration() -> CheckResult:
-    from lead_intelligence.infrastructure.search.browser.settings import (
-        BrowserSearchProviderSettings,
-    )
+    try:
+        from lead_intelligence.infrastructure.search.browser.settings import (
+            BrowserSearchProviderSettings,
+        )
+    except ImportError:
+        return CheckResult(
+            "BrowserSearchProvider configuration",
+            "FAIL",
+            "lead_intelligence is not importable (see the check above). "
+            "Run: pip install -e .",
+        )
 
     settings = BrowserSearchProviderSettings.from_env()
     if not settings.search_url_template.strip():
@@ -254,6 +283,7 @@ def run_checks(output_dir: Path) -> list[CheckResult]:
 
     return [
         check_python_version(),
+        check_package_installed(),
         check_playwright_installed(),
         check_browser_installed(),
         check_internet_connectivity(),
