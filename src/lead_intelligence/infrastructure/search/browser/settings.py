@@ -26,6 +26,16 @@ reading `os.environ` directly inside the dataclass would make every test
 either mutate real process environment variables or monkeypatch
 `os.environ`. Instead, `from_env()` takes an injectable `env` mapping
 (defaulting to `os.environ`), so tests can pass a plain dict.
+
+WHY user_data_dir IS REQUIRED (LIKE search_url_template/THE SELECTORS):
+provider.py launches via Playwright's `launch_persistent_context()`, not
+`launch()` — see provider.py's module docstring for why (using the
+operator's real, already-signed-in Chrome profile). A persistent context
+launch takes `user_data_dir` as a required positional argument; there is
+no meaningful default (pointing at nothing, or at a stranger's profile,
+isn't a sane fallback the way DuckDuckGo's URL/selectors were before), so
+this fails fast in `validate()` exactly like the other operator-supplied
+fields.
 """
 
 from __future__ import annotations
@@ -50,6 +60,7 @@ BROWSER_SEARCH_MAX_RESULTS_ENV_VAR = "BROWSER_SEARCH_MAX_RESULTS"
 BROWSER_SEARCH_HEADLESS_ENV_VAR = "BROWSER_SEARCH_HEADLESS"
 BROWSER_SEARCH_EXECUTABLE_PATH_ENV_VAR = "BROWSER_SEARCH_EXECUTABLE_PATH"
 BROWSER_SEARCH_DEBUG_DIR_ENV_VAR = "BROWSER_SEARCH_DEBUG_DIR"
+BROWSER_SEARCH_USER_DATA_DIR_ENV_VAR = "BROWSER_SEARCH_USER_DATA_DIR"
 
 #: The `{query}` placeholder every search_url_template must contain — the
 #: fully-built query string (after query_templates substitution) is
@@ -78,6 +89,17 @@ class BrowserSearchProviderSettings:
         url_selector: CSS selector, evaluated within each result
             container, for the anchor element whose `href` is the
             result's URL.
+        user_data_dir: Filesystem path to a real Chrome user-data
+            directory (see provider.py's module docstring). Launched via
+            `launch_persistent_context()`, not `launch()`, so the
+            resulting session carries that profile's cookies, browsing
+            history, and signed-in state. No default — see module
+            docstring on why this is required. WARNING: Chrome refuses to
+            launch a second time against a user-data-dir that already has
+            a running Chrome instance open on it ("ProcessSingleton"
+            locking) — either fully close Chrome first, or point this at
+            a dedicated copy of the profile instead of the one you use
+            day to day.
         snippet_selector: CSS selector, evaluated within each result
             container, for the result's snippet text. Optional — a blank
             value means "this results page has no snippet text";
@@ -101,11 +123,12 @@ class BrowserSearchProviderSettings:
         user_agent: Sent as the browser's User-Agent, and checked against
             the search engine's own robots.txt via the same
             `user_agent`/`can_fetch` pattern CompanyWebsiteProvider uses.
-        executable_path: Optional explicit path to a Chromium executable.
-            Overrides Playwright's own browser-resolution logic — useful
-            when a pre-installed browser lives somewhere Playwright
-            doesn't expect (see this package's README for when you need
-            this).
+        executable_path: Explicit path to the browser executable
+            `launch_persistent_context()` runs — for this provider's
+            intended use (the operator's real, already-installed Google
+            Chrome, not Playwright's bundled Chromium), this should point
+            directly at that Chrome binary. Optional; blank falls back to
+            Playwright's own resolution (its bundled Chromium).
         debug_dir: Directory a query's rendered page HTML and a
             screenshot are saved to whenever that query's selectors yield
             zero results (the page loaded, but nothing matched
@@ -121,6 +144,7 @@ class BrowserSearchProviderSettings:
     result_container_selector: str
     title_selector: str
     url_selector: str
+    user_data_dir: str
     snippet_selector: str = ""
     query_templates: tuple[str, ...] = field(
         default_factory=lambda: DEFAULT_QUERY_TEMPLATES
@@ -173,6 +197,13 @@ class BrowserSearchProviderSettings:
                 "BrowserSearchProviderSettings.url_selector must not be blank. "
                 f"Set the {BROWSER_SEARCH_URL_SELECTOR_ENV_VAR} environment "
                 "variable."
+            )
+        if not self.user_data_dir.strip():
+            raise ValueError(
+                "BrowserSearchProviderSettings.user_data_dir must not be blank "
+                "— launch_persistent_context() requires a real Chrome user-data "
+                f"directory. Set the {BROWSER_SEARCH_USER_DATA_DIR_ENV_VAR} "
+                "environment variable."
             )
         if self.timeout_seconds <= 0:
             raise ValueError(
@@ -233,6 +264,7 @@ class BrowserSearchProviderSettings:
             ),
             "title_selector": source.get(BROWSER_SEARCH_TITLE_SELECTOR_ENV_VAR, ""),
             "url_selector": source.get(BROWSER_SEARCH_URL_SELECTOR_ENV_VAR, ""),
+            "user_data_dir": source.get(BROWSER_SEARCH_USER_DATA_DIR_ENV_VAR, ""),
             "snippet_selector": source.get(BROWSER_SEARCH_SNIPPET_SELECTOR_ENV_VAR, ""),
         }
         max_results = source.get(BROWSER_SEARCH_MAX_RESULTS_ENV_VAR)

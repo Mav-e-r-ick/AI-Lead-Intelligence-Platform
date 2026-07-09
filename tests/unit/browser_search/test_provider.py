@@ -17,6 +17,7 @@ from lead_intelligence.application.dto.search_models import (
 )
 from lead_intelligence.infrastructure.search.browser.provider import (
     BrowserSearchProvider,
+    _detect_interstitial,
 )
 from lead_intelligence.infrastructure.search.browser.settings import (
     BrowserSearchProviderSettings,
@@ -303,3 +304,84 @@ def test_blank_debug_dir_disables_saving(tmp_path: Path) -> None:
     provider.search(_request())
 
     assert list(tmp_path.glob("*")) == []
+
+
+def test_detect_interstitial_consent_page_by_url() -> None:
+    page = FakePage(url="https://consent.google.com/ml?continue=...")
+
+    assert _detect_interstitial(page) == "consent_page"
+
+
+def test_detect_interstitial_consent_page_by_text() -> None:
+    page = FakePage(
+        url="https://www.google.com/search?q=x",
+        html="<html>Before you continue to Google Search</html>",
+    )
+
+    assert _detect_interstitial(page) == "consent_page"
+
+
+def test_detect_interstitial_unusual_traffic_via_sorry_url() -> None:
+    page = FakePage(
+        url="https://www.google.com/sorry/index?continue=...",
+        html="<html>Our systems have detected unusual traffic.</html>",
+    )
+
+    assert _detect_interstitial(page) == "unusual_traffic"
+
+
+def test_detect_interstitial_captcha_via_sorry_url_without_unusual_traffic_text() -> (
+    None
+):
+    page = FakePage(
+        url="https://www.google.com/sorry/index?continue=...",
+        html="<html><form id='captcha-form'>...</form></html>",
+    )
+
+    assert _detect_interstitial(page) == "captcha"
+
+
+def test_detect_interstitial_unusual_traffic_via_text_alone() -> None:
+    page = FakePage(
+        url="https://www.google.com/search?q=x",
+        html="<html>unusual traffic from your computer network</html>",
+    )
+
+    assert _detect_interstitial(page) == "unusual_traffic"
+
+
+def test_detect_interstitial_none_for_a_normal_results_page() -> None:
+    page = FakePage(
+        url="https://www.google.com/search?q=x",
+        html="<html><div class='g'>a real result</div></html>",
+    )
+
+    assert _detect_interstitial(page) is None
+
+
+def test_interstitial_page_is_treated_as_a_failed_query_with_debug_capture(
+    tmp_path: Path,
+) -> None:
+    browser = FakeBrowser(
+        page_factory=lambda: FakePage(
+            url="https://consent.google.com/ml?continue=...",
+            html="<html>Before you continue to Google Search</html>",
+        )
+    )
+    provider = _provider(
+        browser,
+        settings=build_settings(
+            max_retries=0,
+            query_templates=('"{name}"',),
+            debug_dir=str(tmp_path),
+        ),
+    )
+
+    response = provider.search(_request())
+
+    assert response.status is EnrichmentStatus.FAILURE
+    assert "consent" in (response.error_message or "").lower()
+    html_files = list(tmp_path.glob("*consent_page*.html"))
+    png_files = list(tmp_path.glob("*consent_page*.png"))
+    assert len(html_files) == 1
+    assert len(png_files) == 1

@@ -1,7 +1,9 @@
 """BrowserSearchProvider: searches for one executive's public web presence
-by driving a real, headless browser (via Playwright) against a
-configured search-results page, gathering result URLs the same way a
-person clicking through a search engine would.
+by driving the operator's own, real Google Chrome (via Playwright's
+`launch_persistent_context()`, against that Chrome's real user-data
+directory — cookies, browsing history, existing signed-in sessions
+included) against a configured search-results page, gathering result URLs
+the same way a person clicking through a search engine would.
 
 WHY THIS PROVIDER EXISTS ALONGSIDE GoogleSearchProvider:
 GoogleSearchProvider calls the Google Custom Search JSON API — reliable,
@@ -11,13 +13,52 @@ fallback: any search engine that has a normal HTML results page (a
 self-hosted metasearch instance, an internal enterprise search tool, or a
 public engine the operator has confirmed they're authorized to automate
 against) becomes usable via the same SearchProviderPort contract, without
-this platform depending on that engine ever publishing an API.
+this platform depending on that engine ever publishing an API. As
+configured by `.env.local.example`, that target is Google's own results
+page (`https://www.google.com/search?q={query}`) — see the module
+docstring caveat below on why that specific target very likely still
+needs an explicit robots.txt/authorization decision from the operator.
 
 WHY search_url_template/CSS SELECTORS HAVE NO BUILT-IN DEFAULT VALUE:
 See settings.py's module docstring. Automating a real browser against a
 search engine's own web UI is a decision only the operator can make for
 their chosen target (terms of service, robots.txt, rate limits) — this
 provider refuses to guess one on their behalf.
+
+WHY launch_persistent_context() INSTEAD OF launch():
+`launch()` starts a fresh, throwaway browser profile every time — no
+cookies, no history, always logged out, and far more obviously automated
+to a search engine's bot-detection than a real person's browser. Google
+in particular treats a browser with a real, aged, signed-in profile very
+differently from a bare-fresh Chromium instance.
+`launch_persistent_context(user_data_dir, ...)` launches directly against
+a real Chrome profile directory and returns a `BrowserContext` (not a
+`Browser` — there is no separate Browser object for a persistent
+context); everywhere else in this provider that previously held a
+`Browser` now holds that `BrowserContext` instead, via the same
+`BrowserLike` seam (see `_PlaywrightBrowser`). WARNING: Chrome will not
+launch a second time against a `user_data_dir` that already has a running
+Chrome instance open on it — see settings.py's `user_data_dir` docstring.
+
+WHY GOOGLE'S OWN robots.txt IS STILL WORTH READING BEFORE RELYING ON THIS:
+Google's real robots.txt has, for many years, disallowed `/search` for
+generic crawlers. `_robots_allow_search()` (below) is unchanged from
+before — it still checks the *configured* target's actual, live
+robots.txt, exactly as it always has — so if Google's current robots.txt
+disallows this provider's `user_agent` from `/search`, this provider will
+(correctly, per its own existing, unmodified design) report SUCCESS with
+zero results rather than fetch anyway. This is not a bug introduced here;
+it is the pre-existing "only the operator decides, and this provider
+still checks robots.txt for whatever they point it at" behavior applied
+to a new target. The operator remains responsible for confirming they are
+authorized to automate Google's results page before relying on this.
+
+WHY CONSENT/CAPTCHA/"UNUSUAL TRAFFIC" PAGES ARE DETECTED EXPLICITLY:
+Google serves these in place of real results, but still returns HTTP 200
+and a normal-looking page — `extract_results()` would otherwise just
+report "zero results" with no indication *why*, and every subsequent
+query in the same run would likely hit the exact same interstitial. See
+`_detect_interstitial()`.
 
 WHY THIS PROVIDER RETURNS SearchResults ONLY, NEVER OBSERVATIONS:
 Per the approved Search Layer RFC, search and extraction are separate
@@ -96,6 +137,17 @@ from lead_intelligence.infrastructure.search.browser.settings import (
 PROVIDER_ID = "browser_search"
 
 
+class _InterstitialPageDetected(Exception):
+    """Raised internally when a search-results navigation lands on a
+    consent/CAPTCHA/"unusual traffic" page instead of real results —
+    caught by `_search_single_query`'s existing retry handling, exactly
+    like a navigation timeout, so no separate retry path is needed."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"{reason.replace('_', ' ')} encountered")
+        self.reason = reason
+
+
 class NavigablePage(PageLike, Protocol):
     """The subset of Playwright's `Page` this provider needs beyond what
     extraction.py already requires (PageLike): actually navigating, plus
@@ -137,29 +189,34 @@ def _default_browser_factory(
         from playwright.sync_api import sync_playwright
 
         driver = sync_playwright().start()
-        browser = driver.chromium.launch(
+        context = driver.chromium.launch_persistent_context(
+            settings.user_data_dir,
             headless=settings.headless,
             executable_path=settings.executable_path,
         )
-        return _PlaywrightBrowser(driver, browser)
+        return _PlaywrightBrowser(driver, context)
 
     return factory
 
 
 class _PlaywrightBrowser:
-    """Adapts a real Playwright `(playwright_driver, browser)` pair to
-    `BrowserLike`, so `close()` shuts down both the browser process and
-    the driver connection it came from."""
+    """Adapts a real Playwright `(playwright_driver, persistent
+    BrowserContext)` pair to `BrowserLike`. A persistent context IS the
+    browser session — `launch_persistent_context()` returns a
+    `BrowserContext` directly, with no separate `Browser` object to hold
+    (see module docstring on why persistent context, not `launch()`).
+    `close()` shuts down both the context (and its Chrome process) and the
+    driver connection it came from."""
 
-    def __init__(self, driver: object, browser: object) -> None:
+    def __init__(self, driver: object, context: object) -> None:
         self._driver = driver
-        self._browser = browser
+        self._context = context
 
     def new_page(self) -> NavigablePage:
-        return self._browser.new_page()  # type: ignore[no-any-return,attr-defined]
+        return self._context.new_page()  # type: ignore[no-any-return,attr-defined]
 
     def close(self) -> None:
-        self._browser.close()  # type: ignore[attr-defined]
+        self._context.close()  # type: ignore[attr-defined]
         self._driver.stop()  # type: ignore[attr-defined]
 
 
@@ -362,9 +419,13 @@ class BrowserSearchProvider(SearchProviderPort):
             try:
                 page = self._get_browser().new_page()
                 page.goto(url, timeout=self._settings.timeout_seconds * 1000)
+                interstitial = _detect_interstitial(page)
+                if interstitial is not None:
+                    self._save_debug_artifacts(page, query, reason=interstitial)
+                    raise _InterstitialPageDetected(interstitial)
                 results = extract_results(page, self._settings, source=self.provider_id)
                 if not results:
-                    self._save_debug_artifacts(page, query)
+                    self._save_debug_artifacts(page, query, reason="zero_results")
             except Exception as exc:  # noqa: BLE001 - any navigation failure is retried
                 logger.warning(
                     "Error searching '{}' (attempt {}/{}): {}",
@@ -388,13 +449,18 @@ class BrowserSearchProvider(SearchProviderPort):
 
         return None
 
-    def _save_debug_artifacts(self, page: NavigablePage, query: str) -> None:
-        """Save the rendered page's HTML and a screenshot when a query's
-        selectors yielded zero results, so a stale selector or a bot-
-        check/rate-limit page (page loads, but has no real results) can be
-        told apart after the fact — see settings.debug_dir. Best-effort:
-        a failure here must never take down an otherwise-successful
-        search, so any error is logged and swallowed, not raised.
+    def _save_debug_artifacts(
+        self, page: NavigablePage, query: str, reason: str
+    ) -> None:
+        """Save the rendered page's HTML and a screenshot whenever a query
+        didn't yield real results — either its selectors matched nothing
+        (`reason="zero_results"`: a stale selector, or a bot-check/rate-
+        limit page that still loaded but has no real results), or a
+        consent/CAPTCHA/"unusual traffic" interstitial was detected
+        outright (`reason` is `_detect_interstitial()`'s return value) —
+        see settings.debug_dir. Best-effort: a failure here must never
+        take down an otherwise-successful search, so any error is logged
+        and swallowed, not raised.
         """
 
         if not self._settings.debug_dir:
@@ -403,7 +469,7 @@ class BrowserSearchProvider(SearchProviderPort):
             debug_dir = Path(self._settings.debug_dir)
             debug_dir.mkdir(parents=True, exist_ok=True)
             stem = (
-                f"{self._clock().strftime('%Y%m%dT%H%M%S%f')}_"
+                f"{self._clock().strftime('%Y%m%dT%H%M%S%f')}_{reason}_"
                 f"{_sanitize_for_filename(query)}"
             )
             html_path = debug_dir / f"{stem}.html"
@@ -411,8 +477,9 @@ class BrowserSearchProvider(SearchProviderPort):
             html_path.write_text(page.content(), encoding="utf-8")
             page.screenshot(path=str(screenshot_path))
             logger.warning(
-                "Zero results for '{}' — saved page HTML to {} and a screenshot "
-                "to {} for selector debugging.",
+                "{} for '{}' — saved page HTML to {} and a screenshot to {} "
+                "for debugging.",
+                reason,
                 query,
                 html_path,
                 screenshot_path,
@@ -474,6 +541,32 @@ class BrowserSearchProvider(SearchProviderPort):
             return True
         example_url = self._settings.search_url_template.format(query="")
         return self._robots_parser.can_fetch(self._settings.user_agent, example_url)
+
+
+def _detect_interstitial(page: NavigablePage) -> str | None:
+    """Whether `page` (already navigated to) is a consent page, a CAPTCHA
+    challenge, or an "unusual traffic" block instead of real results.
+    Google returns HTTP 200 and a normal-looking page for every one of
+    these — `extract_results()` alone would just report "zero results"
+    with no indication why. Checked via `page.url`/`page.content()`
+    (already required by `NavigablePage` for debug-artifact capture) —
+    URL patterns first (most reliable), then well-known page text.
+
+    Returns:
+        "consent_page", "captcha", "unusual_traffic", or None if `page`
+        looks like a normal results page.
+    """
+
+    url = (page.url or "").lower()
+    html = page.content().lower()
+
+    if "consent.google.com" in url or "before you continue to google" in html:
+        return "consent_page"
+    if "/sorry/" in url or "recaptcha" in html or "captcha-form" in html:
+        return "unusual_traffic" if "unusual traffic" in html else "captcha"
+    if "unusual traffic" in html:
+        return "unusual_traffic"
+    return None
 
 
 def _sanitize_for_filename(text: str, max_length: int = 60) -> str:

@@ -41,6 +41,11 @@ def test_blank_url_selector_raises() -> None:
         build_settings(url_selector="").validate()
 
 
+def test_blank_user_data_dir_raises() -> None:
+    with pytest.raises(ValueError, match="user_data_dir"):
+        build_settings(user_data_dir="").validate()
+
+
 def test_blank_snippet_selector_is_allowed() -> None:
     build_settings(snippet_selector="").validate()
 
@@ -80,6 +85,7 @@ def test_from_env_reads_every_variable() -> None:
         "BROWSER_SEARCH_RESULT_SELECTOR": ".res",
         "BROWSER_SEARCH_TITLE_SELECTOR": ".title",
         "BROWSER_SEARCH_URL_SELECTOR": "a.link",
+        "BROWSER_SEARCH_USER_DATA_DIR": "/home/user/chrome-profile",
         "BROWSER_SEARCH_SNIPPET_SELECTOR": ".snippet",
         "BROWSER_SEARCH_MAX_RESULTS": "5",
         "BROWSER_SEARCH_HEADLESS": "false",
@@ -92,6 +98,7 @@ def test_from_env_reads_every_variable() -> None:
     assert settings.result_container_selector == ".res"
     assert settings.title_selector == ".title"
     assert settings.url_selector == "a.link"
+    assert settings.user_data_dir == "/home/user/chrome-profile"
     assert settings.snippet_selector == ".snippet"
     assert settings.max_results == 5
     assert settings.headless is False

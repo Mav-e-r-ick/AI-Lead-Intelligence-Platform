@@ -1,9 +1,10 @@
 # Browser Search Provider
 
 `BrowserSearchProvider` — the Search Layer's first concrete provider
-(Version 1). Drives a real, headless browser (via Playwright) against a
-search engine's own results page and collects result URLs, for engines
-that have no published API. Implements
+(Version 1). Drives the operator's own, real Google Chrome (via
+Playwright's `launch_persistent_context()`, against that Chrome's real
+user-data directory) against a search engine's own results page and
+collects result URLs, for engines that have no published API. Implements
 `application/ports/search_provider_port.py`'s `SearchProviderPort` —
 returns `SearchResult`s only, never extracts observations or fetches a
 result's destination page.
@@ -12,10 +13,14 @@ result's destination page.
 
 **Does:** accept an executive's name/company/title, build a configurable
 set of search queries (reusing `google_search`'s query-template engine
-directly), launch a headless Chromium instance, navigate to a configured
-search-results URL per query, extract up to `max_results` results per
-query via configured CSS selectors, retry transient navigation failures,
-cache each query's results, log every stage, and check the search
+directly), launch the operator's real Chrome against their real profile
+(`launch_persistent_context()`, cookies/history/signed-in state intact),
+navigate to a configured search-results URL per query, detect consent/
+CAPTCHA/"unusual traffic" interstitial pages before attempting extraction,
+extract up to `max_results` results per query via configured CSS
+selectors, retry transient navigation failures, cache each query's
+results, log every stage, save debug artifacts (HTML + screenshot)
+whenever a query doesn't yield real results, and check the search
 engine's own `robots.txt` before ever navigating there.
 
 **Does not:** interpret a result's meaning, extract observations, or
@@ -71,11 +76,22 @@ the exact same set `GoogleSearchProviderSettings` ships with.
 
 ## Why the browser is launched lazily and stays alive across `search()` calls
 
-Launching a fresh Chromium process per query would be far slower than
+Launching a fresh Chrome process per query would be far slower than
 reusing one already-running browser across many executives in the same
 run — the same reasoning `httpx.Client()` reuse already follows
 elsewhere. Call `provider.close()` once done with a provider instance;
 there is no `__del__`-based cleanup.
+
+## Why `launch_persistent_context()` instead of `launch()`
+
+`launch()` starts a fresh, throwaway profile every time — no cookies, no
+history, always logged out, and far more obviously automated to a search
+engine's bot detection than a real person's browser. Google in particular
+treats a browser with a real, aged, signed-in profile very differently
+from a bare-fresh instance. `launch_persistent_context(user_data_dir, ...)`
+launches directly against a real Chrome profile directory and returns a
+`BrowserContext` (there is no separate `Browser` object for a persistent
+context) — see `provider.py`'s module docstring and `_PlaywrightBrowser`.
 
 ## Configuration (`settings.py`)
 
@@ -83,23 +99,43 @@ there is no `__del__`-based cleanup.
 |---|---|
 | `search_url_template` | Results-page URL with a literal `{query}` placeholder. No default — see above. |
 | `result_container_selector` / `title_selector` / `url_selector` | CSS selectors for one result item, its title, and its link. No default. |
+| `user_data_dir` | Real Chrome user-data directory, launched via `launch_persistent_context()`. No default — required, see settings.py. |
 | `snippet_selector` | Optional CSS selector for snippet text; blank means "no snippet available." |
 | `query_templates` | Which queries to generate — defaults to `GoogleSearchProviderSettings`'s own set. |
 | `max_results` | Maximum result URLs collected per query. |
 | `timeout_seconds` | Per-page-navigation timeout. |
-| `max_retries` / `retry_backoff_seconds` | Retry policy for transient navigation failures. |
+| `max_retries` / `retry_backoff_seconds` | Retry policy for transient navigation failures (also covers a detected consent/CAPTCHA/unusual-traffic interstitial — see below). |
 | `cache_ttl` | How long one query's results are reused before being considered stale. |
-| `headless` | Always `True` in production; togglable for local debugging. |
+| `headless` | Togglable; `.env.local.example` defaults this to `false` (see why in that file). |
 | `user_agent` | Sent as the browser's User-Agent, and checked against robots.txt. |
-| `executable_path` | Optional explicit Chromium binary path, overriding Playwright's own resolution (see "Running the real end-to-end test," below, for when you need this). |
-| `debug_dir` | Directory a query's rendered HTML + a screenshot are saved to whenever its selectors yield zero results (page loaded, but nothing matched). Blank disables saving. Default: `"browser_search_debug"`. |
+| `executable_path` | Path to the real browser executable `launch_persistent_context()` runs — for this provider's intended use, your real, already-installed Google Chrome (not Playwright's bundled Chromium). Optional; blank falls back to Playwright's own resolution. |
+| `debug_dir` | Directory a query's rendered HTML + a screenshot are saved to whenever its selectors yield zero results, or a consent/CAPTCHA/unusual-traffic page is detected. Blank disables saving. Default: `"browser_search_debug"`. |
 
-## Diagnosing "0 results" on a real page
+## Detecting consent/CAPTCHA/"unusual traffic" pages
+
+Google serves these in place of real results but still returns HTTP 200
+and a normal-looking page — `extract_results()` alone would just report
+"zero results" with no indication why, and every subsequent query in the
+same run would likely hit the exact same interstitial.
+`provider.py`'s `_detect_interstitial()` checks the navigated page's URL
+and content for each, right after `page.goto()` and before extraction:
+
+| Detected as | Signal |
+|---|---|
+| `consent_page` | URL host is `consent.google.com`, or the page contains "before you continue to Google" |
+| `unusual_traffic` | URL path contains `/sorry/` (or the page contains "captcha"/"recaptcha") *and* the page text contains "unusual traffic"; or "unusual traffic" appears in the page regardless of URL |
+| `captcha` | URL path contains `/sorry/` (or the page contains a `captcha-form`/`recaptcha`), without "unusual traffic" text |
+
+A detected interstitial is treated as a failed attempt for that query —
+routed through the exact same retry/backoff/give-up logic as a navigation
+timeout (see `_InterstitialPageDetected`), and its `reason` is included in
+both the saved debug filenames and `SearchResponse.error_message`.
+
+## Diagnosing "0 results" (or an interstitial) on a real page
 
 The page loading successfully does not mean the configured selectors still
-match it: search engines change their markup, and some serve a
-normal-looking but empty/bot-check page to automated clients. Two things
-make this diagnosable without re-running under a debugger:
+match it, or that Google served real results at all. Two things make this
+diagnosable without re-running under a debugger:
 
 1. **Logging** (`extraction.py`): every zero-result extraction logs
    *which* selector produced nothing — "the container selector matched 0
@@ -107,30 +143,32 @@ make this diagnosable without re-running under a debugger:
    is stale) versus "the container selector matched N elements, but none
    had a usable title/URL" (`title_selector`/`url_selector` is stale).
 2. **Saved artifacts** (`debug_dir`, provider.py's `_save_debug_artifacts`):
-   the exact rendered HTML and a screenshot for that query, timestamped, so
-   you can open them and compare against the configured selectors directly
-   — see `.env.local.example`'s `BROWSER_SEARCH_DEBUG_DIR`.
+   the exact rendered HTML and a screenshot, timestamped and labeled with
+   the reason (`zero_results`/`consent_page`/`captcha`/`unusual_traffic`),
+   so you can open them and compare against the configured selectors
+   directly — see `.env.local.example`'s `BROWSER_SEARCH_DEBUG_DIR`.
 
 `tests/integration/test_browser_search_e2e.py`'s
-`test_real_browser_collects_results_using_the_configured_duckduckgo_selectors`
+`test_real_browser_collects_results_using_the_configured_google_selectors`
 regression-guards the exact selectors `.env.local.example` ships
-(`.result` / `.result__a` / `.result__snippet`) against a real headless
-browser and a page shaped like DuckDuckGo's actual
-`html.duckduckgo.com/html/` markup — run it with `RUN_BROWSER_SEARCH_E2E=1`
-(see "Running the real end-to-end test," below). If a real, live
-DuckDuckGo search still returns 0 results after this passes, the page
-DuckDuckGo served that day differs from this fixture (a template change, or
-a bot-check/rate-limit response) — the saved HTML/screenshot from `debug_dir`
-will show which.
+(`div.g` / `h3` / `a:has(h3)` / `.VwiC3b`) against a real browser and a
+page shaped like Google's actual `www.google.com/search` markup; three
+more tests in that file do the same for each interstitial type — run them
+with `RUN_BROWSER_SEARCH_E2E=1` (see "Running the real end-to-end test,"
+below). If a real, live Google search still returns 0 results after these
+pass, the page Google served that day differs from these fixtures (a
+template change, or an interstitial variant not covered above) — the
+saved HTML/screenshot from `debug_dir` will show which.
 
 ## Environment variables
 
-See `.env.example`'s `BROWSER_SEARCH_*` block. `search_url_template` and
-the three required selectors have no default and raise `ValueError` at
-construction time if blank. For running this provider on a developer
-laptop specifically, `.env.local.example` (repo root) pre-fills a working
-DuckDuckGo-based configuration — see `LOCAL_SETUP.md` for the full
-walkthrough (`setup_local.py`, `run_local.py`, Development Mode).
+See `.env.example`'s `BROWSER_SEARCH_*` block. `search_url_template`, the
+three required selectors, and `user_data_dir` have no default and raise
+`ValueError` at construction time if blank. For running this provider on
+a developer laptop specifically, `.env.local.example` (repo root)
+pre-fills a working Google-based configuration — see `LOCAL_SETUP.md` for
+the full walkthrough (`setup_local.py`, `run_local.py`, Development
+Mode).
 
 ## Why a failed fetch's error message includes the failure reason
 
@@ -242,6 +280,7 @@ export BROWSER_SEARCH_URL_TEMPLATE="https://your-authorized-engine.example/searc
 export BROWSER_SEARCH_RESULT_SELECTOR="..."   # inspect the page's real DOM
 export BROWSER_SEARCH_TITLE_SELECTOR="..."
 export BROWSER_SEARCH_URL_SELECTOR="..."
+export BROWSER_SEARCH_USER_DATA_DIR="/path/to/a/real/chrome/profile"
 
 python3 -c "
 from datetime import datetime, timezone

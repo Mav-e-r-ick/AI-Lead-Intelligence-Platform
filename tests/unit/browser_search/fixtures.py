@@ -28,6 +28,7 @@ def build_settings(**overrides: object) -> BrowserSearchProviderSettings:
         "result_container_selector": "div.result",
         "title_selector": "h3",
         "url_selector": "a",
+        "user_data_dir": "/tmp/fake-chrome-profile",
         "snippet_selector": "p.snippet",
         # Disabled by default so tests that don't care about debug-artifact
         # saving never write files to the real filesystem; tests that do
