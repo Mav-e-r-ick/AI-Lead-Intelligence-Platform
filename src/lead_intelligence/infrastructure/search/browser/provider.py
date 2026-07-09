@@ -40,6 +40,42 @@ context); everywhere else in this provider that previously held a
 launch a second time against a `user_data_dir` that already has a running
 Chrome instance open on it — see settings.py's `user_data_dir` docstring.
 
+WHY launch_persistent_context() NEVER RUNS AGAINST THE DEFAULT PROFILE
+(FIXED):
+Chrome refuses DevTools remote debugging (what `launch_persistent_context`
+needs) against its own real, default profile directory at all — it exits
+immediately with "DevTools remote debugging requires a non-default data
+directory." That is also exactly the profile an operator following
+`.env.local.example`'s own platform-specific example paths might
+reasonably (if too literally) point `BROWSER_SEARCH_USER_DATA_DIR` at.
+`_resolve_automation_user_data_dir()` recognizes Chrome's real default
+profile-root basename on each platform ("User Data" on Windows, "Chrome"
+on macOS, "google-chrome" on Linux) and transparently redirects to a
+dedicated `PlaywrightProfile` subdirectory of it instead — the operator is
+never required to hand over, or manually repoint away from, their actual
+everyday browsing profile.
+
+WHY A FAILED launch_persistent_context() STOPS ITS OWN sync_playwright()
+DRIVER BEFORE RE-RAISING (FIXED):
+`_get_browser()` only calls `_browser_factory()` while `self._browser is
+None`, so the browser is meant to be created exactly once per provider
+instance and reused across every query/retry (see "WHY THE BROWSER IS
+LAUNCHED LAZILY," below) — but `sync_playwright().start()` and
+`launch_persistent_context()` were two separate statements with nothing
+between them: if the second one raised (the default-profile rejection
+above, a bad `executable_path`, anything), the driver `.start()` had
+already returned was never `.stop()`ed and `self._browser` was never
+assigned, so it stayed live but unreferenced. The next retry's
+`_get_browser()` then saw `self._browser` still `None` and started a
+*second* `sync_playwright()` session while the first, leaked one was
+still running — which is exactly what Playwright's sync API raises "It
+looks like you are using Playwright Sync API inside the asyncio loop"
+for; it does not support two overlapping sessions in one process. The
+factory now wraps `launch_persistent_context()` in try/except and calls
+`driver.stop()` before re-raising on any failure, so at most one
+`sync_playwright()` session is ever alive at a time, and a retry after a
+launch failure starts a genuinely clean one.
+
 WHY robots.txt IS CHECKED BUT NO LONGER BLOCKS EXECUTION (CHANGED):
 Google's real robots.txt has, for many years, disallowed `/search` for
 generic crawlers — a rule aimed at automated bots hitting Google
@@ -199,6 +235,23 @@ _SCROLL_STEPS_RANGE = (2, 4)
 _SCROLL_DELTA_RANGE = (150.0, 500.0)
 _SCROLL_PAUSE_RANGE_S = (0.2, 0.6)
 
+#: Basenames (case-insensitive) of Chrome's actual, real, default
+#: profile-root directory across platforms — Windows'
+#: "...\Google\Chrome\User Data", macOS's
+#: "~/Library/Application Support/Google/Chrome", and Linux's
+#: "~/.config/google-chrome". `launch_persistent_context()` refuses to run
+#: against any of these at all (Chrome itself exits immediately: "DevTools
+#: remote debugging requires a non-default data directory") — see
+#: `_resolve_automation_user_data_dir`.
+_DEFAULT_CHROME_PROFILE_ROOT_BASENAMES = frozenset(
+    {"user data", "chrome", "google-chrome"}
+)
+
+#: Subdirectory created under a default profile root, in place of it, so
+#: automation never runs against (or requires the operator to hand over)
+#: their real, everyday Chrome session.
+_DEDICATED_PROFILE_SUBDIR = "PlaywrightProfile"
+
 
 class _InterstitialPageDetected(Exception):
     """Raised internally when a search-results navigation lands on a
@@ -283,6 +336,47 @@ class BrowserLike(Protocol):
     def close(self) -> None: ...
 
 
+def _resolve_automation_user_data_dir(configured: str) -> str:
+    """`configured`, or — if `configured` IS Chrome's actual, real,
+    default profile-root directory — a dedicated subdirectory of it,
+    created if missing. Never returns a default profile root: Chrome
+    itself refuses to launch DevTools remote debugging (what
+    `launch_persistent_context()` needs) against one at all, and even if
+    it didn't, automating the operator's actual everyday browsing session
+    is not something this provider should ever require of them (see
+    module docstring). A `configured` value that's already a dedicated,
+    non-default directory (the expected, documented setup — see
+    .env.local.example) is returned unchanged.
+
+    WHY THE BASENAME IS EXTRACTED VIA A REGEX, NOT `Path(configured).name`:
+    `pathlib.Path` splits on `/` only when running under POSIX semantics
+    (i.e. whenever this isn't itself running on Windows) — a Windows-style
+    `BROWSER_SEARCH_USER_DATA_DIR` value (backslash-separated, as every
+    real Windows path is) would not be recognized as ending in "User Data"
+    at all on a non-Windows machine, silently skipping the redirect this
+    function exists to do. Splitting on either separator, manually, keeps
+    this check correct regardless of which OS is actually running it.
+    """
+
+    trimmed = configured.rstrip("/\\")
+    basename = re.split(r"[\\/]", trimmed)[-1] if trimmed else ""
+    if basename.strip().lower() not in _DEFAULT_CHROME_PROFILE_ROOT_BASENAMES:
+        return configured
+
+    dedicated = Path(configured) / _DEDICATED_PROFILE_SUBDIR
+    logger.warning(
+        "BROWSER_SEARCH_USER_DATA_DIR '{}' is Chrome's real, default "
+        "profile directory — launching automation there is refused by "
+        "Chrome itself ('DevTools remote debugging requires a "
+        "non-default data directory') and would risk your everyday "
+        "browsing session even if it weren't. Using a dedicated "
+        "automation profile instead: {}",
+        configured,
+        dedicated,
+    )
+    return str(dedicated)
+
+
 def _default_browser_factory(
     settings: BrowserSearchProviderSettings,
 ) -> Callable[[], BrowserLike]:
@@ -298,19 +392,35 @@ def _default_browser_factory(
     def factory() -> BrowserLike:
         from playwright.sync_api import sync_playwright
 
+        user_data_dir = _resolve_automation_user_data_dir(settings.user_data_dir)
+        Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+
         logger.info(
             "Launching browser: user_data_dir='{}', headless={}, "
             "executable_path='{}'",
-            settings.user_data_dir,
+            user_data_dir,
             settings.headless,
             settings.executable_path or "(Playwright default)",
         )
         driver = sync_playwright().start()
-        context = driver.chromium.launch_persistent_context(
-            settings.user_data_dir,
-            headless=settings.headless,
-            executable_path=settings.executable_path,
-        )
+        try:
+            context = driver.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=settings.headless,
+                executable_path=settings.executable_path,
+            )
+        except Exception:
+            # Without this, a failed launch_persistent_context() (e.g. the
+            # default-profile rejection above, or a bad executable_path)
+            # leaves this driver connection running forever, un-stopped —
+            # the next retry's _get_browser() sees self._browser still
+            # None and starts a SECOND sync_playwright() while the first
+            # is still alive, which is exactly what raises "It looks like
+            # you are using Playwright Sync API inside the asyncio loop."
+            # Stopping it here means a retry always starts clean: exactly
+            # one sync_playwright() session alive at a time.
+            driver.stop()
+            raise
         logger.debug("Browser launched.")
         return _PlaywrightBrowser(driver, context)
 

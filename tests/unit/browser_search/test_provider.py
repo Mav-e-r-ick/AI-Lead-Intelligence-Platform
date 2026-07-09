@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 import httpx
+import pytest
 
 from lead_intelligence.application.dto.search_models import (
     EnrichmentStatus,
@@ -17,7 +18,9 @@ from lead_intelligence.application.dto.search_models import (
 )
 from lead_intelligence.infrastructure.search.browser.provider import (
     BrowserSearchProvider,
+    _default_browser_factory,
     _detect_interstitial,
+    _resolve_automation_user_data_dir,
 )
 from lead_intelligence.infrastructure.search.browser.settings import (
     BrowserSearchProviderSettings,
@@ -507,3 +510,145 @@ def test_wait_for_selector_timeout_does_not_abort_the_search() -> None:
 
     assert response.status is EnrichmentStatus.SUCCESS
     assert len(response.results) == 1
+
+
+# --- Regression tests: default-profile redirection + no leaked driver ------
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        r"C:\Users\alice\AppData\Local\Google\Chrome\User Data",
+        r"C:\Users\alice\AppData\Local\Google\Chrome\USER DATA",  # case-insensitive
+        "/Users/alice/Library/Application Support/Google/Chrome",
+        "/home/alice/.config/google-chrome",
+    ],
+)
+def test_resolve_automation_user_data_dir_redirects_real_default_profile_roots(
+    configured: str,
+) -> None:
+    resolved = _resolve_automation_user_data_dir(configured)
+
+    assert resolved == str(Path(configured) / "PlaywrightProfile")
+
+
+def test_resolve_automation_user_data_dir_leaves_a_dedicated_directory_unchanged() -> (
+    None
+):
+    already_dedicated = (
+        r"C:\Users\alice\AppData\Local\Google\Chrome\User Data\PlaywrightProfile"
+    )
+
+    assert _resolve_automation_user_data_dir(already_dedicated) == already_dedicated
+
+
+def test_resolve_automation_user_data_dir_leaves_an_arbitrary_custom_path_unchanged() -> (
+    None
+):
+    custom = "/opt/automation-profiles/browser-search"
+
+    assert _resolve_automation_user_data_dir(custom) == custom
+
+
+class _FakeDriver:
+    """A fake Playwright driver connection (the object `sync_playwright().
+    start()` returns): tracks whether `stop()` was ever called, and can be
+    made to raise on `launch_persistent_context()` to simulate a launch
+    failure (e.g. the default-profile rejection)."""
+
+    def __init__(self, launch_error: Exception | None = None) -> None:
+        self.stop_calls = 0
+        self._launch_error = launch_error
+        self.chromium = self  # driver.chromium.launch_persistent_context(...)
+
+    def launch_persistent_context(
+        self,
+        user_data_dir: str,
+        headless: bool | None = None,
+        executable_path: str | None = None,
+    ) -> object:
+        if self._launch_error is not None:
+            raise self._launch_error
+        return object()
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class _FakeSyncPlaywright:
+    """A fake `playwright.sync_api.sync_playwright`: each call to the
+    context-manager-like object's `start()` hands out the next driver from
+    `drivers`, in order, and counts how many times `start()` was called —
+    used to prove at most one driver is ever alive unstopped at a time."""
+
+    def __init__(self, drivers: list[_FakeDriver]) -> None:
+        self._drivers = list(drivers)
+        self.start_calls = 0
+
+    def __call__(self) -> "_FakeSyncPlaywright":
+        return self
+
+    def start(self) -> _FakeDriver:
+        self.start_calls += 1
+        return self._drivers.pop(0)
+
+
+def test_failed_launch_stops_its_driver_before_a_retry_starts_a_new_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Regression test for "It looks like you are using Playwright Sync
+    API inside the asyncio loop": a launch_persistent_context() failure
+    must stop its own driver, not leak it, so a subsequent factory() call
+    (as happens on every retry) never has two sync_playwright() sessions
+    alive at once."""
+
+    failing_driver = _FakeDriver(launch_error=RuntimeError("boom"))
+    succeeding_driver = _FakeDriver()
+    fake_sync_playwright = _FakeSyncPlaywright([failing_driver, succeeding_driver])
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", fake_sync_playwright)
+
+    factory = _default_browser_factory(
+        build_settings(user_data_dir=str(tmp_path / "profile"))
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        factory()
+
+    assert failing_driver.stop_calls == 1, "the failed launch's driver was leaked"
+
+    # A retry (a fresh factory() call, exactly what _get_browser() does when
+    # self._browser is still None after a failed attempt) must succeed
+    # cleanly rather than raising the asyncio-loop error a real overlapping
+    # sync_playwright() session would.
+    browser = factory()
+
+    assert browser is not None
+    assert fake_sync_playwright.start_calls == 2
+    assert succeeding_driver.stop_calls == 0  # still open; provider.close() would stop it
+
+
+def test_default_profile_root_is_redirected_before_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    driver = _FakeDriver()
+    launch_calls: list[str] = []
+    original_launch = driver.launch_persistent_context
+
+    def recording_launch(user_data_dir: str, **kwargs: object) -> object:
+        launch_calls.append(user_data_dir)
+        return original_launch(user_data_dir, **kwargs)
+
+    driver.launch_persistent_context = recording_launch  # type: ignore[method-assign]
+    fake_sync_playwright = _FakeSyncPlaywright([driver])
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", fake_sync_playwright)
+
+    # A real, filesystem-safe path whose basename ("User Data") matches
+    # Chrome's real default-profile-root name — exercises the same
+    # redirection as a genuine Windows default path without writing
+    # anywhere outside pytest's own tmp_path.
+    default_root = tmp_path / "User Data"
+    factory = _default_browser_factory(build_settings(user_data_dir=str(default_root)))
+
+    factory()
+
+    assert launch_calls == [str(default_root / "PlaywrightProfile")]

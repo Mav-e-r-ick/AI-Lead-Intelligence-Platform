@@ -94,12 +94,18 @@ class BrowserSearchProviderSettings:
             `launch_persistent_context()`, not `launch()`, so the
             resulting session carries that profile's cookies, browsing
             history, and signed-in state. No default — see module
-            docstring on why this is required. WARNING: Chrome refuses to
-            launch a second time against a user-data-dir that already has
-            a running Chrome instance open on it ("ProcessSingleton"
-            locking) — either fully close Chrome first, or point this at
-            a dedicated copy of the profile instead of the one you use
-            day to day.
+            docstring on why this is required. Safe to point at Chrome's
+            actual default profile root (e.g. Windows' default
+            Google/Chrome/"User Data" folder) — provider.py's
+            `_resolve_automation_user_data_dir()` recognizes that exact
+            directory and automatically launches against a dedicated
+            "PlaywrightProfile" subdirectory instead, never the real
+            default profile: Chrome itself refuses DevTools remote
+            debugging against its default profile at all ("DevTools
+            remote debugging requires a non-default data directory"),
+            and this also sidesteps Chrome's "already running"
+            single-instance lock, since that subdirectory starts out
+            unused by any other Chrome instance.
         snippet_selector: CSS selector, evaluated within each result
             container, for the result's snippet text. Optional — a blank
             value means "this results page has no snippet text";

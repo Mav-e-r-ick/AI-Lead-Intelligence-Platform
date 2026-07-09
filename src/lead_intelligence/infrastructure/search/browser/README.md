@@ -143,6 +143,29 @@ launches directly against a real Chrome profile directory and returns a
 `BrowserContext` (there is no separate `Browser` object for a persistent
 context) — see `provider.py`'s module docstring and `_PlaywrightBrowser`.
 
+**Never against the operator's actual, default profile, though.** Chrome
+itself refuses DevTools remote debugging against its own real default
+profile directory ("DevTools remote debugging requires a non-default
+data directory"), and even if it didn't, this provider shouldn't ever
+require handing over an operator's everyday browsing session just to
+search. `_resolve_automation_user_data_dir()` recognizes Chrome's actual
+default profile-root basename on each platform ("User Data" on Windows,
+"Chrome" on macOS, "google-chrome" on Linux) and transparently redirects
+to a dedicated `PlaywrightProfile` subdirectory instead — created
+automatically, never something the operator has to set up by hand.
+
+**Exactly one `sync_playwright()` session alive at a time.** The browser
+is meant to be launched once per provider instance and reused across
+every query and retry (see "Why the browser is launched lazily," above).
+`_default_browser_factory()`'s `factory()` wraps
+`launch_persistent_context()` in try/except and stops its just-started
+driver before re-raising on any failure — without that, a failed launch
+(the default-profile rejection above, a bad `executable_path`, anything)
+would leave its driver connection running, un-stopped, and the next
+retry would start a *second* `sync_playwright()` session while the first
+was still alive: exactly what Playwright's sync API raises "It looks
+like you are using Playwright Sync API inside the asyncio loop" for.
+
 ## Configuration (`settings.py`)
 
 | Setting | Purpose |
