@@ -106,6 +106,15 @@ still run.
   URL) for `settings.cache_ttl`, so multiple executives at the same
   company (each triggering its own `EnrichmentRequest`) don't repeatedly
   re-fetch and re-parse the same homepage/leadership page.
+- When the homepage itself can't be fetched, `EnrichmentResponse.
+  error_message` includes *why* (an HTTP status, or `"connection error:
+  ..."` for anything that never got a response at all) — stashed by
+  `_get()` on a private, single-read `_last_fetch_failure` attribute and
+  consumed immediately by `fetch()`. This exists for `run_pipeline.py`'s
+  Development Mode (`--dev-mode`, see `LOCAL_SETUP.md`), which classifies
+  a failure as a network-policy problem versus a genuine content-level
+  failure entirely from this string — `_get()`'s own return type
+  (`str | None`) and every other call site are unchanged.
 
 ## Extraction heuristics (`extraction.py`)
 

@@ -204,6 +204,11 @@ class BrowserSearchProvider(SearchProviderPort):
         self._robots_parser: RobotFileParser | None = None
         self._clock = clock
         self._sleep = sleep_fn
+        # Set by _search_single_query() immediately before it returns None,
+        # so search() can report *why* every query failed instead of just
+        # that they did — same pattern as CompanyWebsiteProvider's
+        # _last_fetch_failure.
+        self._last_query_failure: str | None = None
 
     @property
     def provider_id(self) -> str:
@@ -285,8 +290,13 @@ class BrowserSearchProvider(SearchProviderPort):
             queries_succeeded += 1
             results.extend(query_results)
 
+        error_message = None
         if queries_succeeded == 0:
             status = EnrichmentStatus.FAILURE
+            reason = (
+                f" ({self._last_query_failure})" if self._last_query_failure else ""
+            )
+            error_message = f"All {len(queries)} quer(y/ies) failed{reason}."
         elif queries_failed > 0:
             status = EnrichmentStatus.PARTIAL
         else:
@@ -300,7 +310,9 @@ class BrowserSearchProvider(SearchProviderPort):
             queries_failed,
             len(results),
         )
-        return self._response(request, status, tuple(results))
+        return self._response(
+            request, status, tuple(results), error_message=error_message
+        )
 
     def _response(
         self,
@@ -334,6 +346,8 @@ class BrowserSearchProvider(SearchProviderPort):
 
         url = self._settings.search_url_template.format(query=quote_plus(query))
         attempts = self._settings.max_retries + 1
+        logger.info("Search query: '{}'", query)
+        logger.info("Search URL: {}", url)
 
         for attempt in range(1, attempts + 1):
             page: NavigablePage | None = None
@@ -350,6 +364,7 @@ class BrowserSearchProvider(SearchProviderPort):
                     exc,
                 )
                 if attempt == attempts:
+                    self._last_query_failure = f"navigation error: {exc}"
                     return None
                 self._sleep(self._settings.retry_backoff_seconds * attempt)
                 continue
@@ -357,6 +372,7 @@ class BrowserSearchProvider(SearchProviderPort):
                 if page is not None:
                     page.close()
 
+            logger.info("URLs collected for '{}': {} result(s)", query, len(results))
             self._cache.set(query, results, self._clock())
             return results
 

@@ -97,7 +97,28 @@ there is no `__del__`-based cleanup.
 
 See `.env.example`'s `BROWSER_SEARCH_*` block. `search_url_template` and
 the three required selectors have no default and raise `ValueError` at
-construction time if blank.
+construction time if blank. For running this provider on a developer
+laptop specifically, `.env.local.example` (repo root) pre-fills a working
+DuckDuckGo-based configuration — see `LOCAL_SETUP.md` for the full
+walkthrough (`setup_local.py`, `run_local.py`, Development Mode).
+
+## Why a failed fetch's error message includes the failure reason
+
+`fetch()`/`search()` include *why* a fetch failed (an HTTP status, or
+`"connection error: ..."`/`"navigation error: ..."` for anything that
+never got a response at all) in `EnrichmentResponse.error_message`/
+`SearchResponse.error_message`, not just that it failed. This has one
+purpose beyond better log messages: `run_pipeline.py`'s Development Mode
+(`--dev-mode`) classifies a failure as a network-policy problem (a
+blocked connection, DNS failure, or an HTTP 403 at the connect/robots
+stage) versus a genuine content-level failure entirely from this string —
+see `run_pipeline.py`'s own `_is_network_policy_failure` for the exact,
+narrow set of markers it looks for. `_get()`/`_search_single_query()`
+still return only `str | None`/`tuple[SearchResult, ...] | None` as
+before; the reason is stashed on a private, single-read instance
+attribute (`_last_fetch_failure`/`_last_query_failure`) read immediately
+by the caller that already builds the response — no new return type, no
+new parameter, no change to either class's public shape.
 
 ```python
 from lead_intelligence.infrastructure.search.browser.provider import (

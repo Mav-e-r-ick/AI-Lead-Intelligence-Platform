@@ -58,12 +58,36 @@ in every environment this script runs in. Rather than fail the whole run
 for missing configuration, this script logs a warning and proceeds without
 that piece, exactly like scripts/run_evaluation.py already does for Google
 Search and email verification.
+
+WHY --dev-mode EXISTS, AND EXACTLY WHAT IT CHANGES:
+`ProviderHealthTracker` (application/enrichment/provider_health.py,
+reused unmodified by the Search Layer) trips a circuit breaker after 3
+consecutive provider failures, regardless of *why* they failed — correct
+in production, but counterproductive on a developer laptop where a
+misconfigured local network (VPN, corporate proxy, firewall) can produce
+several connection-level failures in a row that have nothing to do with
+whether the target site itself is reachable in general. `--dev-mode`
+(or PIPELINE_DEV_MODE=true) injects `_DevModeHealthTracker` — a thin
+ProviderHealthTracker subclass, built entirely in this script — into both
+EnrichmentCoordinator and SearchCoordinator via their existing, already
+publicly injectable `health_tracker` constructor parameter. It overrides
+only `record_failure()`: a failure whose message matches
+`_is_network_policy_failure()` (an HTTP 403 at the connect/robots stage,
+or any connection-level error — see that function's docstring) is a
+no-op, so it never advances a provider's consecutive-failure streak. Any
+other failure (404, a genuine 500, a timeout after retries) is passed
+through to the real ProviderHealthTracker.record_failure() completely
+unchanged — Development Mode never touches how a real website failure is
+handled. Off by default; CompanyWebsiteProvider/BrowserSearchProvider
+themselves are not modified beyond including the failure reason in their
+existing error_message strings (see their own provider.py docstrings).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -82,7 +106,10 @@ from lead_intelligence.application.comparison.config import (
 )
 from lead_intelligence.application.comparison.engine import ComparisonEngine
 from lead_intelligence.application.dto.cleaning_models import CleanedLeadRecord
-from lead_intelligence.application.dto.enrichment_models import ObservationCandidate
+from lead_intelligence.application.dto.enrichment_models import (
+    ObservationCandidate,
+    ProviderHealth,
+)
 from lead_intelligence.application.dto.executive_pipeline_models import (
     ExecutiveIntelligenceReport,
     ExecutiveProcessingReport,
@@ -91,6 +118,9 @@ from lead_intelligence.application.dto.inflection_models import InflectionType
 from lead_intelligence.application.dto.search_models import SearchResult
 from lead_intelligence.application.enrichment.config import EnrichmentProfile
 from lead_intelligence.application.enrichment.coordinator import EnrichmentCoordinator
+from lead_intelligence.application.enrichment.provider_health import (
+    ProviderHealthTracker,
+)
 from lead_intelligence.application.enrichment.provider_registry import ProviderRegistry
 from lead_intelligence.application.evaluation.row_builder import build_row
 from lead_intelligence.application.executive_pipeline.orchestrator import (
@@ -171,6 +201,72 @@ class _CountingSearchExtraction:
         return self._engine.extract(subject_id, search_results)
 
 
+#: Substrings CompanyWebsiteProvider/BrowserSearchProvider now include in
+#: their error_message on a connection-level failure or an HTTP 403 (see
+#: provider.py's _last_fetch_failure / _last_query_failure), plus the
+#: specific Chromium network-error codes Playwright surfaces for a
+#: connection that was never established (observed directly, in this
+#: environment, driving BrowserSearchProvider against a real search
+#: engine through a policy-restricted proxy: net::ERR_TUNNEL_CONNECTION_
+#: FAILED). Deliberately excludes generic/ambiguous codes like
+#: net::ERR_TIMED_OUT, which can just as easily mean "the real site is
+#: slow" as "the network path is blocked" — kept as an explicit,
+#: documented list (not a guess at every possible network error) so
+#: Development Mode's effect stays predictable.
+_NETWORK_POLICY_MARKERS: tuple[str, ...] = (
+    "HTTP 403",
+    "connection error",
+    "net::ERR_TUNNEL_CONNECTION_FAILED",
+    "net::ERR_PROXY_CONNECTION_FAILED",
+    "net::ERR_CONNECTION_REFUSED",
+    "net::ERR_CONNECTION_RESET",
+    "net::ERR_CONNECTION_CLOSED",
+    "net::ERR_NAME_NOT_RESOLVED",
+)
+
+
+def _is_network_policy_failure(error_message: str | None) -> bool:
+    """Whether `error_message` looks like a network/connectivity problem
+    (a blocked outbound connection, DNS failure, or an HTTP 403 at the
+    connect/robots stage) rather than the destination site itself
+    genuinely failing (404, 500, a timeout after retries against a
+    reachable host). Deliberately narrow: only the signatures provider.py
+    actually emits for those cases (see _NETWORK_POLICY_MARKERS) — a real
+    site returning some other 4xx, a 5xx after retries, or a plain
+    timeout, is never matched here, so Development Mode cannot
+    accidentally mask a genuine content-level failure.
+    """
+
+    if not error_message:
+        return False
+    return any(marker in error_message for marker in _NETWORK_POLICY_MARKERS)
+
+
+class _DevModeHealthTracker(ProviderHealthTracker):
+    """A ProviderHealthTracker that does not let a network-policy failure
+    (see `_is_network_policy_failure`) advance a provider's
+    consecutive-failure streak, so the circuit breaker in
+    application/enrichment/provider_health.py never trips from that class
+    of failure alone. Every other failure — and every success — is
+    recorded exactly as the real ProviderHealthTracker.record_failure()
+    already would. Only ever constructed when --dev-mode/PIPELINE_DEV_MODE
+    is enabled; see this module's own docstring for the full rationale.
+    """
+
+    def record_failure(
+        self, provider_id: str, at: datetime, error: str
+    ) -> ProviderHealth:
+        if _is_network_policy_failure(error):
+            logger.info(
+                "Development Mode: not counting a network-policy failure "
+                "against '{}''s health: {}",
+                provider_id,
+                error,
+            )
+            return self.get(provider_id)
+        return super().record_failure(provider_id, at, error)
+
+
 def _build_enrichment_providers() -> list[EnrichmentProviderPort]:
     providers: list[EnrichmentProviderPort] = [CompanyWebsiteProvider()]
 
@@ -202,9 +298,9 @@ def _build_verification_coordinator() -> VerificationCoordinator | None:
     return VerificationCoordinator([provider], VerificationProfile(name="run_pipeline"))
 
 
-def _build_search_collaborators() -> (
-    tuple[SearchCoordinator | None, _CountingSearchExtraction | None]
-):
+def _build_search_collaborators(
+    dev_mode: bool,
+) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None]:
     try:
         browser_settings = BrowserSearchProviderSettings.from_env()
         browser_settings.validate()
@@ -216,27 +312,48 @@ def _build_search_collaborators() -> (
         return None, None
 
     provider = BrowserSearchProvider(browser_settings)
+    health_tracker = _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
     coordinator = SearchCoordinator(
-        SearchProviderRegistry([provider]), default_search_profile()
+        SearchProviderRegistry([provider]),
+        default_search_profile(),
+        health_tracker=health_tracker,
     )
     extraction = _CountingSearchExtraction(SearchExtractionEngine())
     return coordinator, extraction
 
 
-def build_orchestrator() -> (
-    tuple[ExecutiveProcessingOrchestrator, _CountingSearchExtraction | None]
-):
-    """Wire real infrastructure into an ExecutiveProcessingOrchestrator."""
+def build_orchestrator(
+    dev_mode: bool = False,
+) -> tuple[ExecutiveProcessingOrchestrator, _CountingSearchExtraction | None]:
+    """Wire real infrastructure into an ExecutiveProcessingOrchestrator.
 
+    Args:
+        dev_mode: When True, both EnrichmentCoordinator and
+            SearchCoordinator get a _DevModeHealthTracker instead of the
+            real ProviderHealthTracker — see this module's own docstring
+            ("WHY --dev-mode EXISTS") for exactly what that changes.
+    """
+
+    if dev_mode:
+        logger.warning(
+            "Development Mode is ON: network-policy failures (see "
+            "_is_network_policy_failure) will not mark a provider unhealthy. "
+            "Real website failures are unaffected."
+        )
+
+    enrichment_health_tracker = (
+        _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
+    )
     enrichment_coordinator = EnrichmentCoordinator(
         ProviderRegistry(_build_enrichment_providers()),
         EnrichmentProfile(name="run_pipeline"),
+        health_tracker=enrichment_health_tracker,
     )
     comparison_engine = ComparisonEngine(default_comparison_profile())
     inflection_engine = InflectionDetectionEngine(
         InflectionRuleRegistry(INFLECTION_RULES), default_inflection_profile()
     )
-    search_coordinator, search_extraction = _build_search_collaborators()
+    search_coordinator, search_extraction = _build_search_collaborators(dev_mode)
 
     orchestrator = ExecutiveProcessingOrchestrator(
         enrichment_coordinator=enrichment_coordinator,
@@ -371,6 +488,10 @@ def _configure_run_logging(log_dir: Path) -> None:
     )
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("excel_path", help="Path to the .xlsx file of executives.")
@@ -385,11 +506,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output-dir",
-        default=".",
-        help="Directory to write results.xlsx / processing_report.json / logs/ into.",
+        default=os.environ.get("PIPELINE_OUTPUT_DIR", "."),
+        help=(
+            "Directory to write results.xlsx / processing_report.json / logs/ "
+            "into. Defaults to the PIPELINE_OUTPUT_DIR environment variable, "
+            "or the current directory."
+        ),
     )
     parser.add_argument("--results-name", default="results.xlsx")
     parser.add_argument("--report-name", default="processing_report.json")
+    parser.add_argument(
+        "--dev-mode",
+        action="store_true",
+        default=_env_flag("PIPELINE_DEV_MODE"),
+        help=(
+            "Development Mode: a network-policy failure (see "
+            "_is_network_policy_failure) does not mark a provider unhealthy. "
+            "Real website failures are unaffected. Defaults to the "
+            "PIPELINE_DEV_MODE environment variable."
+        ),
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir)
@@ -413,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         "Processing {} record(s) through the orchestrator.", len(cleaned_records)
     )
 
-    orchestrator, search_extraction = build_orchestrator()
+    orchestrator, search_extraction = build_orchestrator(dev_mode=args.dev_mode)
     batch = [
         (record, f"row:{record.raw_record.row_number}") for record in cleaned_records
     ]

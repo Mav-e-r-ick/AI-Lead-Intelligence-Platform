@@ -107,6 +107,11 @@ class CompanyWebsiteProvider(EnrichmentProviderPort):
         self._cache = cache or InMemoryPageCache(ttl=self._settings.cache_ttl)
         self._clock = clock
         self._sleep = sleep_fn
+        # Set by _get() immediately before it returns None, so fetch() can
+        # report *why* a fetch failed (connection error vs. HTTP status)
+        # instead of just that it did — see _get()'s docstring. Read once,
+        # right after the call that set it; never meant to outlive that.
+        self._last_fetch_failure: str | None = None
 
     @property
     def provider_id(self) -> str:
@@ -161,11 +166,14 @@ class CompanyWebsiteProvider(EnrichmentProviderPort):
 
         homepage_html = self._get(homepage_url)
         if homepage_html is None:
+            reason = (
+                f" ({self._last_fetch_failure})" if self._last_fetch_failure else ""
+            )
             return self._response(
                 request,
                 EnrichmentStatus.FAILURE,
                 (),
-                error_message=f"Failed to fetch homepage: {homepage_url}",
+                error_message=f"Failed to fetch homepage: {homepage_url}{reason}",
             )
 
         candidate_pages = discover_leadership_pages(
@@ -332,6 +340,7 @@ class CompanyWebsiteProvider(EnrichmentProviderPort):
                     exc,
                 )
                 if attempt == attempts:
+                    self._last_fetch_failure = f"connection error: {exc}"
                     return None
                 self._sleep(self._settings.retry_backoff_seconds * attempt)
                 continue
@@ -345,6 +354,9 @@ class CompanyWebsiteProvider(EnrichmentProviderPort):
                     attempts,
                 )
                 if attempt == attempts:
+                    self._last_fetch_failure = (
+                        f"HTTP {response.status_code} (server error, retries exhausted)"
+                    )
                     return None
                 self._sleep(self._settings.retry_backoff_seconds * attempt)
                 continue
@@ -355,6 +367,7 @@ class CompanyWebsiteProvider(EnrichmentProviderPort):
                     response.status_code,
                     url,
                 )
+                self._last_fetch_failure = f"HTTP {response.status_code}"
                 return None
 
             self._cache.set(url, response.text, self._clock())

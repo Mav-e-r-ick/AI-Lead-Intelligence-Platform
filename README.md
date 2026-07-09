@@ -221,6 +221,24 @@ Alembic (schema migrations) is configured but has no migrations to run yet
 Once models exist, the usual commands apply: `alembic revision --autogenerate
 -m "..."` then `alembic upgrade head`.
 
+## Running the pipeline on a real Excel file, locally
+
+```bash
+cp .env.local.example .env.local   # DuckDuckGo-based BrowserSearchProvider default
+playwright install chromium        # once per machine
+python setup_local.py              # verifies Python/Playwright/browser/network/config
+python run_local.py path/to/your.xlsx --limit 10
+```
+
+`run_local.py` loads `.env.local`, runs `setup_local.py`'s pre-flight
+checks, then delegates entirely to `run_pipeline.py`
+(`ExecutiveProcessingOrchestrator.process_batch()`) — see
+[`LOCAL_SETUP.md`](LOCAL_SETUP.md) for the full walkthrough, Playwright
+installation troubleshooting, and what `--dev-mode`/`PIPELINE_DEV_MODE`
+(Development Mode: don't let a network-policy failure trip
+`ProviderHealthTracker`'s circuit breaker; real website failures are
+unaffected) actually changes.
+
 ## Project layout
 
 ```
@@ -337,6 +355,11 @@ top-level table is the map; the per-folder READMEs are the terrain.
 | `.env.example` | A checked-in template listing every environment variable the app will use, with placeholder (fake) values. Copy it to `.env` and fill in real secrets locally; `.env` itself is gitignored. |
 | `docker-compose.yml` | Runs a local PostgreSQL container with credentials matching `.env.example`, so `DATABASE_URL` works out of the box with `docker-compose up -d postgres`. |
 | `alembic.ini` / `alembic/` | Migration tooling configuration. `alembic/env.py` reads `DATABASE_URL` from `core.config.get_settings()` (never hardcoded), and points at `Base.metadata` for future autogenerate support. No migrations exist yet — no ORM models exist yet. |
+| `.env.local.example` | Checked-in sample `BrowserSearchProvider` (DuckDuckGo) + Development Mode configuration for `run_local.py`/`run_pipeline.py`. Copy to `.env.local` (gitignored) to use — see [`LOCAL_SETUP.md`](LOCAL_SETUP.md). |
+| `setup_local.py` | Verifies a developer laptop is ready to run the pipeline against real data (Python version, Playwright, browser, network, config, output directory) — checks only, no business logic. |
+| `run_local.py` | Loads `.env.local`, runs `setup_local.py`'s checks, then delegates to `run_pipeline.py` — see [`LOCAL_SETUP.md`](LOCAL_SETUP.md). |
+| `run_pipeline.py` | Runs `ExecutiveProcessingOrchestrator.process_batch()` over a real Excel file and writes `results.xlsx` / `processing_report.json` / `logs/`. |
+| `LOCAL_SETUP.md` | Full walkthrough for running the pipeline locally with real internet access: Playwright installation, `.env.local`, `setup_local.py`, `run_local.py`, and Development Mode. |
 | `README.md` | This file. |
 
 ## Clean Architecture, in one sentence
