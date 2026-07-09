@@ -133,11 +133,8 @@ messages, and send them after human review.
 > (see [`application/search/README.md`](src/lead_intelligence/application/search/README.md)
 > and [`infrastructure/search/browser/README.md`](src/lead_intelligence/infrastructure/search/browser/README.md)).
 > No AI, no new business logic, no built-in default search engine (the
-> operator must supply and be authorized to use their own target). Not
-> yet wired into the Executive Processing Pipeline — a deliberate,
-> separate follow-up, the same sequencing this platform already followed
-> for Company Website and Google Search themselves. The **Search
-> Extraction Engine (Version 1)** (`infrastructure/search/extraction/`)
+> operator must supply and be authorized to use their own target). The
+> **Search Extraction Engine (Version 1)** (`infrastructure/search/extraction/`)
 > completes the RFC's pipeline: it turns `SearchResult` URLs into
 > structured `ObservationCandidate`s — downloading each destination page
 > (respecting that domain's own robots.txt; PDFs skipped in V1),
@@ -148,8 +145,28 @@ messages, and send them after human review.
 > it) — no AI, no LLM, no guessing: unmatched pages yield only their
 > `web_page` evidence candidate (see
 > [`infrastructure/search/extraction/README.md`](src/lead_intelligence/infrastructure/search/extraction/README.md)).
-> Also not yet wired into the Executive Processing Pipeline. No ORM
-> models, concrete repositories, or tables exist yet, and Identity
+> The **Executive Processing Pipeline (Version 2)**
+> (`application/executive_pipeline/`) now wires all of the above
+> together: `ExecutiveProcessingOrchestrator.process()` adds an Identity
+> Resolution stage (records the engine's full decision on the report; the
+> caller-supplied `subject_id` is kept for every other stage, since no
+> identity persistence exists yet to resolve into), runs the Search Layer
+> (Browser Search) alongside enrichment (Company Website), feeds every
+> found `SearchResult` through the Search Extraction Engine, and combines
+> both evidence paths' `ObservationCandidate`s before Comparison runs — as
+> before, every stage has its own error handling, so one stage's failure
+> never discards another's results. A new `process_batch()` runs many
+> executives, continues past any one executive's failure (including a
+> genuinely unexpected exception, not just an ordinary one), and returns
+> one final `ExecutiveIntelligenceReport` — the "Final Executive
+> Intelligence Report" — bundling every per-executive
+> `ExecutiveProcessingReport` plus batch statistics (counts by status,
+> error totals, execution time). No new provider, no AI, no messaging, no
+> automation, and no change to any existing engine or framework — pure
+> orchestration, connecting modules that were each already built and
+> tested standalone (see
+> [`application/executive_pipeline/README.md`](src/lead_intelligence/application/executive_pipeline/README.md)).
+> No ORM models, concrete repositories, or tables exist yet, and Identity
 > Resolution's lineage redirects, rollback windows, and full reviewer
 > workflow are explicitly Version 2 — both deliberately deferred to future
 > tasks. Every other business feature (domain entities, phone
@@ -251,7 +268,7 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 │       │   ├── comparison/        # Executive Comparison Engine (V1) — see comparison/README.md
 │       │   ├── inflection/        # Inflection Detection Engine (V1) — see inflection/README.md
 │       │   ├── verification/      # Contact Verification Framework (V1) — see verification/README.md
-│       │   ├── executive_pipeline/ # Executive Processing Pipeline (V1) — see executive_pipeline/README.md
+│       │   ├── executive_pipeline/ # Executive Processing Pipeline (V2) — see executive_pipeline/README.md
 │       │   ├── evaluation/        # Evaluation & Validation Module (V1) — see evaluation/README.md
 │       │   └── search/            # Search Layer (V1) — see search/README.md
 │       ├── infrastructure/       # Talks to databases & third-party vendors
@@ -300,7 +317,8 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
     │   └── search_extraction/      # Search Extraction Engine unit tests (mocked HTTP)
     ├── integration/               # Tests spanning multiple pieces
     │   ├── test_health.py          # Proves the foundation runs and the database is reachable
-    │   ├── test_executive_pipeline.py # Full pipeline through real (HTTP-mocked) providers
+    │   ├── test_executive_pipeline.py # Full pipeline (V1 stages) through real (HTTP-mocked) providers
+    │   ├── test_executive_intelligence_pipeline.py # Full V2 pipeline (+ identity resolution, search, extraction) end to end
     │   └── test_browser_search_e2e.py # Real Playwright + local HTTP server (opt-in, RUN_BROWSER_SEARCH_E2E=1)
     └── fixtures/                  # excel_builder.py — synthetic .xlsx fixtures for tests
 ```
@@ -457,8 +475,7 @@ order the project brief lists them:
     retries/caches/logs. No built-in default search engine — the operator
     supplies and must be authorized to use their own target. No AI, no
     new business logic, no observation extraction, no page-fetching
-    beyond the search engine's own results page. Not yet wired into the
-    Executive Processing Pipeline — a deliberate, separate follow-up.
+    beyond the search engine's own results page.
 12. ✅ Turn found URLs into structured evidence — the **Search Extraction
     Engine (Version 1)** (`infrastructure/search/extraction/`):
     `SearchExtractionEngine` converts `SearchResult`s into
@@ -470,10 +487,23 @@ order the project brief lists them:
     patterns — every fetched page yields a `web_page` evidence candidate
     (raw search snippet preserved verbatim), every extracted fact is
     traceable to the exact pattern that produced it, and nothing is ever
-    guessed. No AI, no LLM. Not yet wired into the Executive Processing
-    Pipeline — same deliberate sequencing as every prior engine.
-13. Generate AI-personalized outreach messages.
-14. Send emails after a human review step.
+    guessed. No AI, no LLM.
+13. ✅ Wire Identity Resolution, the Search Layer, and the Search
+    Extraction Engine into the Executive Processing Pipeline — the
+    **Executive Processing Pipeline (Version 2)**
+    (`application/executive_pipeline/`): `ExecutiveProcessingOrchestrator`
+    adds an Identity Resolution stage, runs the Search Layer (Browser
+    Search) alongside enrichment (Company Website), feeds every found
+    `SearchResult` through the Search Extraction Engine, and combines both
+    evidence paths' observations before Comparison runs. A new
+    `process_batch()` processes many executives, continues past any one
+    executive's failure, and returns one final `ExecutiveIntelligenceReport`
+    bundling every per-executive report plus batch statistics. No new
+    provider, no AI, no messaging, no automation, no redesign of any
+    existing module — pure orchestration (see
+    [`application/executive_pipeline/README.md`](src/lead_intelligence/application/executive_pipeline/README.md)).
+14. Generate AI-personalized outreach messages.
+15. Send emails after a human review step.
 
 ## Handling sensitive data
 

@@ -38,6 +38,8 @@ from lead_intelligence.application.dto.evaluation_models import (
     ExecutiveEvaluationRow,
 )
 from lead_intelligence.application.dto.executive_pipeline_models import (
+    ExecutiveBatchStatistics,
+    ExecutiveIntelligenceReport,
     ExecutiveProcessingReport,
     ExecutiveProcessingStatus,
 )
@@ -152,6 +154,8 @@ __all__ = [
     "VerificationReport",
     "ExecutiveProcessingStatus",
     "ExecutiveProcessingReport",
+    "ExecutiveBatchStatistics",
+    "ExecutiveIntelligenceReport",
     "ExecutiveEvaluationRow",
     "EvaluationSummary",
     "EvaluationRun",

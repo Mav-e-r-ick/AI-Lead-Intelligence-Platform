@@ -22,9 +22,10 @@ plus any future one — Bing, Brave, SerpAPI, Tavily, SearchAPI, Exa —
 each a new class implementing `SearchProviderPort`). Does not extract
 observations, interpret a result's meaning, or fetch a result's
 destination page — a search provider's job ends at
-title/url/snippet/source/rank. Not yet wired into
-`ExecutiveProcessingOrchestrator` — see "Why this isn't wired into the
-Executive Processing Pipeline yet" below.
+title/url/snippet/source/rank; turning results into evidence is
+`infrastructure/search/extraction/`'s job, called separately by
+`ExecutiveProcessingOrchestrator` — see "How this is wired into the
+Executive Processing Pipeline" below.
 
 ## Why this is a separate package from `application/enrichment/`
 
@@ -50,7 +51,7 @@ already has one.
 ## How the pieces communicate
 
 ```
-(future) ExecutiveProcessingOrchestrator     -- not wired yet, see below
+ExecutiveProcessingOrchestrator         (application/executive_pipeline/orchestrator.py)
         |
         v
 SearchCoordinator                       (coordinator.py)
@@ -83,19 +84,22 @@ SearchCoordinationResult                (application/dto/search_models.py)
    flattened `results` tuple, plus per-provider responses, skips, and
    metrics.
 
-## Why this isn't wired into the Executive Processing Pipeline yet
+## How this is wired into the Executive Processing Pipeline
 
-Building the framework and its first concrete provider
-(`BrowserSearchProvider`) was this task's scope. Wiring a new
-`SearchCoordinator.search()` call into `ExecutiveProcessingOrchestrator`
-(alongside, or replacing, `GoogleSearchProvider`'s current path through
-`EnrichmentCoordinator`) touches an already-working, already-tested
-orchestrator and is a deliberate, separate follow-up — exactly the same
-sequencing this platform already followed for Company Website and Google
-Search themselves (each built and unit-tested standalone before the
-Executive Processing Pipeline task wired them in). Running
-`scripts/run_evaluation.py` today does not yet exercise
-`BrowserSearchProvider`.
+`ExecutiveProcessingOrchestrator.process()` (application/executive_pipeline/)
+calls `SearchCoordinator.search()` alongside — not instead of —
+`EnrichmentCoordinator.enrich()`; the two evidence paths run
+independently and their observations are combined before Comparison runs
+(see `executive_pipeline/README.md`). Every `SearchResult` the
+coordinator returns is then handed to a `SearchExtractionPort`
+(`application/ports/search_extraction_port.py`, satisfied in production
+by the real `SearchExtractionEngine`) — the orchestrator's own
+responsibility, not this package's, keeping "search finds URLs" and
+"extraction reads them" as separate calls the orchestrator sequences,
+exactly per the approved RFC. `scripts/run_evaluation.py` does not yet
+build a `SearchCoordinator`/`BrowserSearchProvider` for its own
+evaluation runs — that CLI wiring is a separate, still-pending follow-up
+from this orchestrator change.
 
 ## Files
 

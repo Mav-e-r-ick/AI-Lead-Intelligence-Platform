@@ -174,21 +174,40 @@ sitting right next to the code it tests for easy navigation.
 - `unit/executive_pipeline/` covers the Executive Processing Pipeline:
   `fixtures.py` (`build_orchestrator` — assembles a real
   `EnrichmentCoordinator`/`ComparisonEngine`/`InflectionDetectionEngine`/
-  optional `VerificationCoordinator` around injectable fake providers and
-  profile overrides), `test_orchestrator.py` (missing-executive-name
-  handling, the happy path including an end-to-end detected Promotion,
-  subject-type routing — Person- and Company-scoped providers both run,
-  a provider supporting neither never runs — observation aggregation,
-  verification scope — skipped when not configured, skipped when no
-  email is known, receives the existing record's email — per-stage error
-  handling for all four stages via genuinely invalid sub-profiles, status
-  derivation, and determinism).
+  optional `VerificationCoordinator`, plus (V2) an optional
+  `IdentityResolutionEngine`/`SearchCoordinator`/`SearchExtractionPort`,
+  around injectable fake providers and profile overrides),
+  `test_orchestrator.py` (missing-executive-name handling, the happy path
+  including an end-to-end detected Promotion, subject-type routing —
+  Person- and Company-scoped providers both run, a provider supporting
+  neither never runs — observation aggregation, verification scope —
+  skipped when not configured, skipped when no email is known, receives
+  the existing record's email — per-stage error handling for all four
+  stages via genuinely invalid sub-profiles, status derivation, and
+  determinism), and `test_full_pipeline_stages.py` (V2: the Identity
+  Resolution stage recording its outcome on the report and surviving a
+  raising port, the Search + Search Extraction stages — including
+  `providers_executed` being recorded even when extraction itself fails,
+  extraction being skipped with a warning when no engine is configured,
+  and combined observations reaching Comparison — and `process_batch()`
+  — statistics across succeeded/partial/failed executives, continuing
+  past both an ordinary per-stage error and a genuinely unexpected
+  exception from `process()` itself, and the returned
+  `ExecutiveIntelligenceReport`'s totals/timing).
 - `integration/test_executive_pipeline.py` proves the same orchestrator
   processes one executive correctly through the *real*
   `CompanyWebsiteProvider`, `GoogleSearchProvider`, and
   `NeverBounceEmailProvider` (each HTTP-mocked via `httpx.MockTransport`,
   never a real network call), with no fakes standing in for any of the
   orchestrator's own collaborators.
+- `integration/test_executive_intelligence_pipeline.py` proves the V2
+  pipeline end to end through every *real* collaborator at once: a real
+  `IdentityResolutionEngine`, `CompanyWebsiteProvider` (HTTP-mocked), a
+  real `SearchCoordinator` wrapping a `BrowserSearchProvider` (fake
+  in-memory browser), a real `SearchExtractionEngine` (HTTP-mocked), and
+  a real `VerificationCoordinator`/`NeverBounceEmailProvider`
+  (HTTP-mocked) — `TestSingleExecutiveEndToEnd` for one record and
+  `TestBatchEndToEnd` for `process_batch()` across several.
 - `unit/evaluation/` covers the Evaluation & Validation module:
   `fixtures.py` (`make_report`/`make_inflection_report`/`make_verification_report`
   builders for `ExecutiveProcessingReport` and its embedded stage results),

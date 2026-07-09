@@ -24,12 +24,17 @@ from enum import Enum
 
 from lead_intelligence.application.dto.comparison_models import ComparisonResult
 from lead_intelligence.application.dto.enrichment_models import ObservationCandidate
+from lead_intelligence.application.dto.identity_resolution_models import (
+    IdentityResolutionOutcome,
+)
 from lead_intelligence.application.dto.inflection_models import InflectionReport
 from lead_intelligence.application.dto.verification_models import VerificationReport
 
 __all__ = [
     "ExecutiveProcessingStatus",
     "ExecutiveProcessingReport",
+    "ExecutiveBatchStatistics",
+    "ExecutiveIntelligenceReport",
 ]
 
 
@@ -88,6 +93,13 @@ class ExecutiveProcessingReport:
             status is SUCCESS.
         started_at: When this executive's processing began.
         completed_at: When this executive's processing finished.
+        identity_resolution_outcome: The Identity Resolution Engine's full
+            decision for this record (auto-merge / candidate review / new
+            identity, with its extracted identity and scored candidates),
+            or None if no IdentityResolutionEngine was configured or that
+            stage failed. Appended with a None default so every existing
+            construction site (and the Evaluation module's fixtures)
+            stays valid unchanged.
     """
 
     subject_id: str
@@ -101,9 +113,63 @@ class ExecutiveProcessingReport:
     stage_errors: tuple[str, ...]
     started_at: datetime
     completed_at: datetime
+    identity_resolution_outcome: IdentityResolutionOutcome | None = None
 
     @property
     def duration_ms(self) -> float:
         """Wall-clock duration of this executive's processing, in milliseconds."""
+
+        return (self.completed_at - self.started_at).total_seconds() * 1000
+
+
+@dataclass(frozen=True)
+class ExecutiveBatchStatistics:
+    """Aggregate statistics for one ExecutiveProcessingOrchestrator batch run.
+
+    Attributes:
+        total_executives: How many records went in.
+        succeeded / partial / failed: How many reports finished with each
+            ExecutiveProcessingStatus.
+        executives_with_errors: How many reports carry at least one stage
+            error (a superset of `failed` — a PARTIAL report has errors
+            too).
+        stage_errors_total: Every stage error across every report, summed.
+        execution_time_total_ms: Wall-clock time spent inside per-executive
+            processing, summed (a real measurement, deliberately excluded
+            from any determinism guarantee, like every other engine's own
+            execution-time metric).
+    """
+
+    total_executives: int
+    succeeded: int
+    partial: int
+    failed: int
+    executives_with_errors: int
+    stage_errors_total: int
+    execution_time_total_ms: float
+
+
+@dataclass(frozen=True)
+class ExecutiveIntelligenceReport:
+    """The pipeline's single final report object for one batch of
+    executives — the "Final Executive Intelligence Report."
+
+    Attributes:
+        executive_reports: One ExecutiveProcessingReport per input record,
+            in input order — including a FAILED report (never a gap) for
+            any record whose processing raised unexpectedly.
+        statistics: The batch-level numbers above.
+        started_at: When the batch began.
+        completed_at: When the batch finished.
+    """
+
+    executive_reports: tuple[ExecutiveProcessingReport, ...]
+    statistics: ExecutiveBatchStatistics
+    started_at: datetime
+    completed_at: datetime
+
+    @property
+    def duration_ms(self) -> float:
+        """Wall-clock duration of the whole batch, in milliseconds."""
 
         return (self.completed_at - self.started_at).total_seconds() * 1000

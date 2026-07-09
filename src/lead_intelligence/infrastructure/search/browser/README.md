@@ -22,8 +22,9 @@ engine's own `robots.txt` before ever navigating there.
 fetch/crawl a result's *destination* page — that boundary is deliberate
 (see "Why this provider never fetches a result's destination page"
 below). Does not ship with a working default search target — see
-"Why there is no built-in search engine" below. Not yet wired into
-`ExecutiveProcessingOrchestrator` (see `application/search/README.md`).
+"Why there is no built-in search engine" below. Wired into
+`ExecutiveProcessingOrchestrator` as of that module's Version 2 (see
+`application/executive_pipeline/README.md`).
 
 ## Why there is no built-in search engine
 

@@ -17,6 +17,9 @@ from lead_intelligence.application.enrichment.provider_registry import ProviderR
 from lead_intelligence.application.executive_pipeline.orchestrator import (
     ExecutiveProcessingOrchestrator,
 )
+from lead_intelligence.application.identity_resolution.engine import (
+    IdentityResolutionEngine,
+)
 from lead_intelligence.application.inflection import config as inflection_config
 from lead_intelligence.application.inflection.config import InflectionProfile
 from lead_intelligence.application.inflection.engine import InflectionDetectionEngine
@@ -25,8 +28,17 @@ from lead_intelligence.application.inflection.rules import ALL_RULES
 from lead_intelligence.application.ports.enrichment_provider_port import (
     EnrichmentProviderPort,
 )
+from lead_intelligence.application.ports.search_extraction_port import (
+    SearchExtractionPort,
+)
+from lead_intelligence.application.ports.search_provider_port import SearchProviderPort
 from lead_intelligence.application.ports.verification_provider_port import (
     VerificationProviderPort,
+)
+from lead_intelligence.application.search.config import SearchProfile
+from lead_intelligence.application.search.coordinator import SearchCoordinator
+from lead_intelligence.application.search.provider_registry import (
+    SearchProviderRegistry,
 )
 from lead_intelligence.application.verification.config import VerificationProfile
 from lead_intelligence.application.verification.coordinator import (
@@ -80,6 +92,10 @@ def build_orchestrator(
     comparison_profile: ComparisonProfile | None = None,
     inflection_profile: InflectionProfile | None = None,
     verification_profile: VerificationProfile | None = None,
+    identity_resolution_engine: IdentityResolutionEngine | None = None,
+    search_providers: list[SearchProviderPort] | None = None,
+    search_profile: SearchProfile | None = None,
+    search_extraction_engine: SearchExtractionPort | None = None,
     clock: Callable[[], datetime] = fixed_clock,
 ) -> ExecutiveProcessingOrchestrator:
     enrichment_coordinator = EnrichmentCoordinator(
@@ -104,11 +120,22 @@ def build_orchestrator(
             id_factory=_sequential_id_factory(),
             clock=clock,
         )
+    search_coordinator: SearchCoordinator | None = None
+    if search_providers is not None:
+        search_coordinator = SearchCoordinator(
+            SearchProviderRegistry(search_providers),
+            search_profile or SearchProfile(name="t"),
+            id_factory=_sequential_id_factory(),
+            clock=clock,
+        )
     return ExecutiveProcessingOrchestrator(
         enrichment_coordinator=enrichment_coordinator,
         comparison_engine=comparison_engine,
         inflection_engine=inflection_engine,
         verification_coordinator=verification_coordinator,
+        identity_resolution_engine=identity_resolution_engine,
+        search_coordinator=search_coordinator,
+        search_extraction_engine=search_extraction_engine,
         clock=clock,
     )
 

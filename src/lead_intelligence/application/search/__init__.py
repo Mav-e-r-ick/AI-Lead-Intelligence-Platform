@@ -17,7 +17,6 @@ infrastructure/search/browser/ (BrowserSearchProvider, the first concrete
 provider) and any future one (Bing, Brave, SerpAPI, Tavily, SearchAPI,
 Exa), each a new class implementing SearchProviderPort.
 
-Not yet wired into ExecutiveProcessingOrchestrator — see this package's
-README.md for why that's a deliberate, separate follow-up, not an
-oversight.
+Wired into ExecutiveProcessingOrchestrator (application/executive_pipeline/)
+as of that module's Version 2 — see this package's README.md for how.
 """
