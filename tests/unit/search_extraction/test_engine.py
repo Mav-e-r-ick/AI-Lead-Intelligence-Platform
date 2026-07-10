@@ -44,10 +44,17 @@ class TestSuccessfulExtraction:
         )
 
         by_attribute = {o.attribute: o for o in observations}
-        assert set(by_attribute) == {"web_page", "full_name", "title", "company_name"}
+        assert set(by_attribute) == {
+            "web_page",
+            "full_name",
+            "title",
+            "company_name",
+            "published_at",
+        }
         assert by_attribute["full_name"].value == "Ada Lovelace"
         assert by_attribute["title"].value == "CTO"
         assert by_attribute["company_name"].value == "Acme Corp"
+        assert by_attribute["published_at"].value == "2024-05-30T09:00:00Z"
         assert by_attribute["web_page"].value == "Ada Lovelace named CTO of Acme Corp"
 
     def test_every_candidate_carries_subject_id_engine_id_and_source_url(

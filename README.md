@@ -133,7 +133,11 @@ messages, and send them after human review.
 > (see [`application/search/README.md`](src/lead_intelligence/application/search/README.md)
 > and [`infrastructure/search/browser/README.md`](src/lead_intelligence/infrastructure/search/browser/README.md)).
 > No AI, no new business logic, no built-in default search engine (the
-> operator must supply and be authorized to use their own target). The
+> operator must supply and be authorized to use their own target).
+> **`BrowserSearchProvider` has since been superseded as the Search Layer's
+> primary provider by `CompanyCrawlerProvider` (Version 1) — see roadmap
+> item 14 below — and is now wired in only as an optional, lower-priority
+> `fallback_only` provider.** The
 > **Search Extraction Engine (Version 1)** (`infrastructure/search/extraction/`)
 > completes the RFC's pipeline: it turns `SearchResult` URLs into
 > structured `ObservationCandidate`s — downloading each destination page
@@ -230,7 +234,9 @@ Once models exist, the usual commands apply: `alembic revision --autogenerate
 ## Running the pipeline on a real Excel file, locally
 
 ```bash
-cp .env.local.example .env.local   # DuckDuckGo-based BrowserSearchProvider default
+cp .env.local.example .env.local   # DuckDuckGo-based BrowserSearchProvider fallback config
+                                    # (CompanyCrawlerProvider, the primary search
+                                    # provider, needs no configuration)
 playwright install chromium        # once per machine
 python setup_local.py              # verifies Python/Playwright/browser/network/config
 python run_local.py path/to/your.xlsx --limit 10
@@ -303,8 +309,9 @@ unaffected) actually changes.
 │       │   ├── enrichment/        # Enrichment providers — see enrichment/company_website/README.md
 │       │   │   ├── company_website/ # CompanyWebsiteProvider (V1) — robots.txt, discovery, extraction, retry/timeout/cache
 │       │   │   └── google_search/   # GoogleSearchProvider (V1) — configurable queries, retry/timeout/cache, web_mention observations
-│       │   ├── search/            # Search providers + extraction — see search/browser/README.md
-│       │   │   ├── browser/         # BrowserSearchProvider (V1) — Playwright, configurable engine/selectors, robots.txt, retry/timeout/cache
+│       │   ├── search/            # Search providers + extraction — see search/company_crawler/README.md
+│       │   │   ├── company_crawler/ # CompanyCrawlerProvider (V1) — primary provider; Playwright + BeautifulSoup/lxml, crawls the company's own site, no AI
+│       │   │   ├── browser/         # BrowserSearchProvider (V1) — optional fallback_only provider; Playwright, configurable engine/selectors, robots.txt, retry/timeout/cache
 │       │   │   └── extraction/      # SearchExtractionEngine (V1) — SearchResult URLs -> ObservationCandidates, rule-based, no AI
 │       │   └── external_services/ # One sub-folder per vendor category:
 │       │       ├── email_verification/
@@ -337,6 +344,7 @@ unaffected) actually changes.
     │   ├── executive_pipeline/     # Executive Processing Pipeline unit tests
     │   ├── evaluation/             # Evaluation & Validation Module unit tests
     │   ├── search/                 # Search Layer framework unit tests
+    │   ├── company_crawler/        # CompanyCrawlerProvider unit tests (mocked Playwright)
     │   ├── browser_search/         # BrowserSearchProvider unit tests (mocked Playwright)
     │   └── search_extraction/      # Search Extraction Engine unit tests (mocked HTTP)
     ├── integration/               # Tests spanning multiple pieces
@@ -532,8 +540,30 @@ order the project brief lists them:
     provider, no AI, no messaging, no automation, no redesign of any
     existing module — pure orchestration (see
     [`application/executive_pipeline/README.md`](src/lead_intelligence/application/executive_pipeline/README.md)).
-14. Generate AI-personalized outreach messages.
-15. Send emails after a human review step.
+14. ✅ Replace search-engine querying with crawling each executive's own
+    company website — the **Company Crawler Provider (Version 1)**
+    (`infrastructure/search/company_crawler/`): `CompanyCrawlerProvider`
+    is now the Search Layer's primary `SearchProviderPort`, opening the
+    company website already on file, prioritizing internal links whose
+    path/text suggest leadership/management/executive/board/about/team/
+    people/press/news content (deterministic keyword scoring, no AI),
+    ignoring login/privacy/product pages and paginated careers listings,
+    and crawling breadth-first up to a bounded depth/page count via
+    Playwright + BeautifulSoup/lxml. It still returns only `SearchResult`s
+    — the unmodified `SearchExtractionEngine` (widened to also recognize
+    `email`/`phone`/`linkedin_url`/`published_at` facts, a common shape on
+    leadership/bio pages) is still what turns those into
+    `ObservationCandidate`s, and Identity Resolution/Comparison/Inflection/
+    Verification are untouched. `BrowserSearchProvider` is now wired in as
+    an optional, lower-priority `fallback_only` provider — `run_pipeline.py`
+    only runs it when the company crawl itself contributed zero
+    `SearchResult`s for that executive (see
+    [`infrastructure/search/company_crawler/README.md`](src/lead_intelligence/infrastructure/search/company_crawler/README.md)
+    for the exact fallback semantics and its known Version 1 limitations).
+    No AI, no LLM, no paid APIs, no change to
+    `ExecutiveProcessingOrchestrator`.
+15. Generate AI-personalized outreach messages.
+16. Send emails after a human review step.
 
 ## Handling sensitive data
 

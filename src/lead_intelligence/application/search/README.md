@@ -11,15 +11,20 @@ and deliberately not merged into — the Enrichment Provider Framework.
 (`SearchProviderPort`), the request/response shapes providers exchange
 with the coordinator (`application/dto/search_models.py`), a registry for
 wiring in providers via dependency injection, per-provider configuration
-(enabled/priority), health tracking (reusing
+(enabled/priority/`fallback_only`), health tracking (reusing
 `application/enrichment/provider_health.py`'s `ProviderHealthTracker`
 unmodified), and a `SearchCoordinator` that determines which providers
-apply, executes them in priority order, and combines their results.
+apply, executes them in priority order, skips a `fallback_only` provider
+once a higher-priority provider already contributed results, and combines
+the rest.
 
 **Does not:** implement any concrete provider itself (that's
-`infrastructure/search/browser/`, this layer's first concrete provider,
-plus any future one — Bing, Brave, SerpAPI, Tavily, SearchAPI, Exa —
-each a new class implementing `SearchProviderPort`). Does not extract
+`infrastructure/search/company_crawler/`, this layer's primary provider as
+of Version 1 — crawls each executive's own company website, no third-party
+search engine involved — plus `infrastructure/search/browser/`, wired in
+as an optional `fallback_only` provider for when the company site yields
+nothing, plus any future one — Bing, Brave, SerpAPI, Tavily, SearchAPI,
+Exa — each a new class implementing `SearchProviderPort`). Does not extract
 observations, interpret a result's meaning, or fetch a result's
 destination page — a search provider's job ends at
 title/url/snippet/source/rank; turning results into evidence is
@@ -97,9 +102,11 @@ by the real `SearchExtractionEngine`) — the orchestrator's own
 responsibility, not this package's, keeping "search finds URLs" and
 "extraction reads them" as separate calls the orchestrator sequences,
 exactly per the approved RFC. `scripts/run_evaluation.py` does not yet
-build a `SearchCoordinator`/`BrowserSearchProvider` for its own
-evaluation runs — that CLI wiring is a separate, still-pending follow-up
-from this orchestrator change.
+build a `SearchCoordinator` (`CompanyCrawlerProvider`/`BrowserSearchProvider`)
+for its own evaluation runs — that CLI wiring is a separate, still-pending
+follow-up from this orchestrator change. `run_pipeline.py` does build one
+(see `infrastructure/search/company_crawler/README.md`'s "Fallback
+semantics" section for the exact priority/`fallback_only` wiring).
 
 ## Files
 

@@ -4,7 +4,10 @@ Given a Subject (a Digital Twin id, or a provisional identity id from the
 Identity Resolution Engine), the coordinator:
 1. Determines which registered providers even apply to this subject_type.
 2. Filters to providers that are enabled and healthy.
-3. Executes the remaining providers in priority order.
+3. Executes the remaining providers in priority order — skipping any
+   provider configured `fallback_only=True` once an earlier, higher-
+   priority provider has already contributed a result (see
+   `SearchProviderConfiguration.fallback_only`'s own docstring).
 4. Collects every SearchResult from every executed provider.
 5. Returns one combined SearchCoordinationResult.
 
@@ -159,6 +162,20 @@ class SearchCoordinator:
                         provider_id=provider.provider_id,
                         reason=SkipReason.UNHEALTHY,
                         detail="Provider has exceeded its consecutive-failure threshold.",
+                    )
+                )
+                continue
+
+            if configuration.fallback_only and results:
+                skipped.append(
+                    ProviderSkip(
+                        provider_id=provider.provider_id,
+                        reason=SkipReason.FALLBACK_NOT_NEEDED,
+                        detail=(
+                            f"{len(results)} result(s) already collected from "
+                            "higher-priority provider(s); this fallback provider "
+                            "was not needed."
+                        ),
                     )
                 )
                 continue

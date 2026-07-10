@@ -55,12 +55,22 @@ httpx>=0.27,<1.0
 # a full browser engine or any AI/LLM call.
 beautifulsoup4>=4.12,<5.0
 
-# --- Headless browser automation (Search Layer, BrowserSearchProvider) -----
-# Drives a real, headless Chromium instance to search a configured search
-# engine's own results page and collect result URLs, for search engines
-# with no published API. Run `playwright install chromium` once after
-# installing this package (not needed if a pre-installed Chromium is
-# pointed to via BrowserSearchProviderSettings.executable_path).
+# lxml is BeautifulSoup's parser backend for CompanyCrawlerProvider (Search
+# Layer) — a faster, stricter parser than the stdlib "html.parser" default,
+# used specifically for parsing crawled company pages' links and content.
+lxml>=5.0,<6.0
+
+# --- Headless browser automation (Search Layer, BrowserSearchProvider,
+# CompanyCrawlerProvider) ----------------------------------------------------
+# Drives a real, headless Chromium instance — either to search a configured
+# search engine's own results page and collect result URLs (BrowserSearchProvider,
+# for search engines with no published API), or to crawl an executive's own
+# company website for leadership/press/news pages (CompanyCrawlerProvider,
+# the Search Layer's primary provider — see infrastructure/search/company_crawler/).
+# Run `playwright install chromium` once after installing this package (not
+# needed if a pre-installed Chromium is pointed to via
+# BrowserSearchProviderSettings.executable_path /
+# CompanyCrawlerProviderSettings.executable_path).
 playwright>=1.47,<2.0
 
 # --- AI provider (future "generate personalized outreach" feature) --------

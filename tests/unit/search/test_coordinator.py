@@ -15,6 +15,7 @@ from lead_intelligence.application.dto.enrichment_models import (
 )
 from lead_intelligence.application.dto.search_models import (
     EnrichmentStatus,
+    ProviderSkip,
     SearchRequest,
     SearchResponse,
     SearchResult,
@@ -297,3 +298,121 @@ def test_coordination_is_deterministic_given_the_same_inputs() -> None:
     # the Enrichment Provider Framework's own metrics.execution_time_total_ms.
     assert result_a.metrics.providers_executed == result_b.metrics.providers_executed
     assert result_a.metrics.results_collected == result_b.metrics.results_collected
+
+
+def _empty_response(provider_id: str, request: SearchRequest) -> SearchResponse:
+    return SearchResponse(
+        provider_id=provider_id,
+        request_id=request.request_id,
+        subject_id=request.subject_id,
+        status=EnrichmentStatus.SUCCESS,
+        results=(),
+        error_message=None,
+        started_at=request.requested_at,
+        completed_at=request.requested_at,
+    )
+
+
+class TestFallbackOnly:
+    """SearchProviderConfiguration.fallback_only — a provider configured
+    with it only runs when no higher-priority provider already produced a
+    result in the same search() call (CompanyCrawlerProvider/
+    BrowserSearchProvider's real-world use of this)."""
+
+    def test_fallback_provider_is_skipped_when_primary_already_has_results(
+        self,
+    ) -> None:
+        primary = FakeSearchProvider(
+            "primary", handler=lambda request: _result_response("primary", request)
+        )
+        fallback = FakeSearchProvider("fallback")
+        profile = SearchProfile(
+            name="t",
+            provider_configurations={
+                "primary": SearchProviderConfiguration(priority=ProviderPriority.HIGH),
+                "fallback": SearchProviderConfiguration(
+                    priority=ProviderPriority.LOW, fallback_only=True
+                ),
+            },
+        )
+        coordinator = _coordinator([primary, fallback], profile)
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert fallback.calls == []
+        assert result.skipped_providers == (
+            ProviderSkip(
+                provider_id="fallback",
+                reason=SkipReason.FALLBACK_NOT_NEEDED,
+                detail=(
+                    "1 result(s) already collected from higher-priority "
+                    "provider(s); this fallback provider was not needed."
+                ),
+            ),
+        )
+
+    def test_fallback_provider_runs_when_primary_yields_nothing(self) -> None:
+        primary = FakeSearchProvider(
+            "primary", handler=lambda request: _empty_response("primary", request)
+        )
+        fallback = FakeSearchProvider(
+            "fallback", handler=lambda request: _result_response("fallback", request)
+        )
+        profile = SearchProfile(
+            name="t",
+            provider_configurations={
+                "primary": SearchProviderConfiguration(priority=ProviderPriority.HIGH),
+                "fallback": SearchProviderConfiguration(
+                    priority=ProviderPriority.LOW, fallback_only=True
+                ),
+            },
+        )
+        coordinator = _coordinator([primary, fallback], profile)
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert len(fallback.calls) == 1
+        assert len(result.results) == 1
+        assert result.results[0].source == "fallback"
+
+    def test_fallback_provider_runs_when_it_is_the_only_provider(self) -> None:
+        fallback = FakeSearchProvider(
+            "fallback", handler=lambda request: _result_response("fallback", request)
+        )
+        profile = SearchProfile(
+            name="t",
+            provider_configurations={
+                "fallback": SearchProviderConfiguration(fallback_only=True),
+            },
+        )
+        coordinator = _coordinator([fallback], profile)
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert len(fallback.calls) == 1
+        assert len(result.results) == 1
+
+    def test_default_fallback_only_is_false_and_never_skips(self) -> None:
+        """Backward compatibility: a provider with no explicit
+        fallback_only configuration always runs, exactly like before this
+        field existed."""
+
+        primary = FakeSearchProvider(
+            "primary", handler=lambda request: _result_response("primary", request)
+        )
+        other = FakeSearchProvider(
+            "other", handler=lambda request: _result_response("other", request)
+        )
+        profile = SearchProfile(
+            name="t",
+            provider_configurations={
+                "primary": SearchProviderConfiguration(priority=ProviderPriority.HIGH),
+                "other": SearchProviderConfiguration(priority=ProviderPriority.LOW),
+            },
+        )
+        coordinator = _coordinator([primary, other], profile)
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert len(other.calls) == 1
+        assert result.skipped_providers == ()

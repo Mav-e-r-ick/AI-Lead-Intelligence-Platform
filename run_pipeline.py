@@ -135,8 +135,11 @@ from lead_intelligence.application.inflection.rules import ALL_RULES as INFLECTI
 from lead_intelligence.application.ports.enrichment_provider_port import (
     EnrichmentProviderPort,
 )
+from lead_intelligence.application.dto.enrichment_models import ProviderPriority
+from lead_intelligence.application.ports.search_provider_port import SearchProviderPort
 from lead_intelligence.application.search.config import (
-    default_profile as default_search_profile,
+    SearchProfile,
+    SearchProviderConfiguration,
 )
 from lead_intelligence.application.search.coordinator import SearchCoordinator
 from lead_intelligence.application.search.provider_registry import (
@@ -172,6 +175,9 @@ from lead_intelligence.infrastructure.search.browser.provider import (
 from lead_intelligence.infrastructure.search.browser.settings import (
     BrowserSearchProviderSettings,
 )
+from lead_intelligence.infrastructure.search.company_crawler.provider import (
+    CompanyCrawlerProvider,
+)
 from lead_intelligence.infrastructure.search.extraction.engine import (
     SearchExtractionEngine,
 )
@@ -179,6 +185,7 @@ from lead_intelligence.infrastructure.search.extraction.engine import (
 _SEARCH_EXTRACTION_PROVIDER_ID = "search_extraction"
 _PAGE_ATTRIBUTE = "web_page"
 _BROWSER_SEARCH_PROVIDER_ID = "browser_search"
+_COMPANY_CRAWLER_PROVIDER_ID = "company_crawler"
 
 
 class _CountingSearchExtraction:
@@ -301,21 +308,45 @@ def _build_verification_coordinator() -> VerificationCoordinator | None:
 def _build_search_collaborators(
     dev_mode: bool,
 ) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None]:
+    """CompanyCrawlerProvider is the Search Layer's primary provider: it
+    crawls each executive's own company website (no third party, no
+    search engine query) for leadership/press/news pages. BrowserSearchProvider
+    is wired in only as an optional, `fallback_only=True` provider — it
+    runs a query against a search engine only when BROWSER_SEARCH_URL_TEMPLATE
+    and friends are configured AND the company crawl itself contributed zero
+    SearchResults for that executive (see SearchProviderConfiguration.fallback_only
+    and SearchCoordinator's fallback-skip logic)."""
+
+    health_tracker = _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
+
+    providers: list[SearchProviderPort] = [CompanyCrawlerProvider()]
+    provider_configurations: dict[str, SearchProviderConfiguration] = {
+        _COMPANY_CRAWLER_PROVIDER_ID: SearchProviderConfiguration(
+            priority=ProviderPriority.HIGH
+        ),
+    }
+
     try:
         browser_settings = BrowserSearchProviderSettings.from_env()
         browser_settings.validate()
     except ValueError:
         logger.warning(
             "BROWSER_SEARCH_URL_TEMPLATE and friends not configured; running "
-            "without the Search Layer (Browser Search + Search Extraction)."
+            "with CompanyCrawlerProvider only (search engines unavailable as "
+            "a fallback)."
         )
-        return None, None
+    else:
+        providers.append(BrowserSearchProvider(browser_settings))
+        provider_configurations[_BROWSER_SEARCH_PROVIDER_ID] = SearchProviderConfiguration(
+            priority=ProviderPriority.LOW, fallback_only=True
+        )
 
-    provider = BrowserSearchProvider(browser_settings)
-    health_tracker = _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
     coordinator = SearchCoordinator(
-        SearchProviderRegistry([provider]),
-        default_search_profile(),
+        SearchProviderRegistry(providers),
+        SearchProfile(
+            name="run_pipeline",
+            provider_configurations=provider_configurations,
+        ),
         health_tracker=health_tracker,
     )
     extraction = _CountingSearchExtraction(SearchExtractionEngine())

@@ -64,9 +64,21 @@ _PAGE_ATTRIBUTE = "web_page"
 
 #: Fact attributes, emitted only when the corresponding fact was actually
 #: extracted. Names deliberately reuse CompanyWebsiteProvider's existing
-#: observation vocabulary (`full_name`, `title`) plus the canonical
-#: `company_name`, never a new parallel vocabulary.
-_FACT_ATTRIBUTES = ("full_name", "title", "company_name")
+#: observation vocabulary (`full_name`, `title`, `email`, `phone`) plus
+#: the canonical `company_name`, never a new parallel vocabulary.
+#: `linkedin_url`/`published_at` have no CompanyWebsiteProvider
+#: equivalent yet — new attribute names, handled by ComparisonEngine's
+#: existing "unknown attribute" path (see comparison/engine.py) exactly
+#: like any other attribute it has no explicit field mapping for.
+_FACT_ATTRIBUTES = (
+    "full_name",
+    "title",
+    "company_name",
+    "email",
+    "phone",
+    "linkedin_url",
+    "published_at",
+)
 
 
 class SearchExtractionEngine:
@@ -189,6 +201,13 @@ class SearchExtractionEngine:
             "full_name": facts.full_name,
             "title": facts.title,
             "company_name": facts.company_name,
+            "email": facts.email,
+            "phone": facts.phone,
+            "linkedin_url": facts.linkedin_url,
+            # Sourced from PageContent (content_extraction.py), not
+            # ExtractedFacts — already carried in raw_context below either
+            # way; promoted here to its own comparable/queryable candidate.
+            "published_at": content.published_at,
         }
         for attribute in _FACT_ATTRIBUTES:
             value = fact_values[attribute]

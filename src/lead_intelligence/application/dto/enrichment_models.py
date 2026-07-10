@@ -80,6 +80,7 @@ class SkipReason(str, Enum):
     UNHEALTHY = "unhealthy"
     NOT_STALE = "not_stale"
     UNSUPPORTED_SUBJECT_TYPE = "unsupported_subject_type"
+    FALLBACK_NOT_NEEDED = "fallback_not_needed"
 
 
 @dataclass(frozen=True)

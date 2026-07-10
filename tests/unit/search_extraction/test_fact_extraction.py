@@ -132,3 +132,53 @@ class TestDeterminism:
         second = extract_facts("", text)
 
         assert first == second
+
+
+class TestContactFactsAreIndependentOfAnnouncementPatterns:
+    """email/phone/linkedin_url are found regardless of whether any of the
+    five announcement patterns also matched — see module docstring."""
+
+    def test_email_found_on_a_page_with_no_announcement_pattern(self) -> None:
+        facts = extract_facts(
+            "Leadership", "Ada Lovelace, CEO. Contact: ada@acme.com"
+        )
+
+        assert facts.matched_pattern is None
+        assert facts.email == "ada@acme.com"
+
+    def test_phone_found_on_a_page_with_no_announcement_pattern(self) -> None:
+        facts = extract_facts("Leadership", "Ada Lovelace, CEO. Call +1 415-555-0134.")
+
+        assert facts.matched_pattern is None
+        assert facts.phone == "+1 415-555-0134"
+
+    def test_linkedin_url_found_on_a_page_with_no_announcement_pattern(self) -> None:
+        facts = extract_facts(
+            "Leadership", "Ada Lovelace, CEO. https://www.linkedin.com/in/ada-lovelace"
+        )
+
+        assert facts.matched_pattern is None
+        assert facts.linkedin_url == "https://www.linkedin.com/in/ada-lovelace"
+
+    def test_all_three_extracted_alongside_a_matched_announcement_pattern(
+        self,
+    ) -> None:
+        facts = extract_facts(
+            "",
+            "Ada Lovelace was appointed CTO of Acme Corp. Reach her at "
+            "ada@acme.com or +1 415-555-0134, or on "
+            "https://linkedin.com/in/ada-lovelace.",
+        )
+
+        assert facts.matched_pattern is not None
+        assert facts.full_name == "Ada Lovelace"
+        assert facts.email == "ada@acme.com"
+        assert facts.phone == "+1 415-555-0134"
+        assert facts.linkedin_url == "https://linkedin.com/in/ada-lovelace"
+
+    def test_no_contact_details_present_yields_none_for_all_three(self) -> None:
+        facts = extract_facts("Weather forecast", "Sunny with a chance of rain.")
+
+        assert facts.email is None
+        assert facts.phone is None
+        assert facts.linkedin_url is None

@@ -44,6 +44,15 @@ class SearchProviderConfiguration:
             (e.g. BrowserSearchProvider's own page-navigation timeout) —
             but still validated and carried so every provider's profile
             entry has one consistent place to configure it from.
+        fallback_only: When True, this provider is skipped whenever a
+            higher-priority provider already contributed at least one
+            SearchResult earlier in the same `search()` call — a
+            "fallback" provider only actually runs when everything ahead
+            of it in priority order came back empty. Default False
+            preserves today's behavior exactly (every enabled, healthy,
+            applicable provider always runs) for every existing profile;
+            this only takes effect for a provider a caller explicitly
+            opts in.
         parameters: Provider-specific configuration, kept fully generic
             and opaque here — this framework never interprets a
             provider's own parameters, matching
@@ -53,6 +62,7 @@ class SearchProviderConfiguration:
     enabled: bool = True
     priority: ProviderPriority = ProviderPriority.MEDIUM
     timeout_seconds: float = 10.0
+    fallback_only: bool = False
     parameters: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
