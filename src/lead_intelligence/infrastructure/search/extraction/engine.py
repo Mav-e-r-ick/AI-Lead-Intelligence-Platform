@@ -22,8 +22,27 @@ PROVIDER'S ID:
 `ObservationCandidate.provider_id` answers "which component *observed*
 this fact." The search provider only found the URL; this engine is what
 fetched the page and read the fact off it. The originating provider is
-still fully traceable — carried as `raw_context["search_source"]`,
-straight from `SearchResult.source`.
+still fully traceable — carried both as `raw_context["search_source"]`
+(unchanged) and, as of the Federated Search redesign, as the candidate's
+own dedicated `source_provider` field (see enrichment_models.py's
+ObservationCandidate docstring) — a first-class field a downstream
+consumer can filter/group on without parsing `raw_context`.
+
+WHY EVERY CANDIDATE ALSO CARRIES confidence/raw_text/evidence_type NOW:
+Per the Federated Search redesign, several independent providers now
+contribute evidence, each with its own trust level
+(`application/search/confidence.py`) — a candidate extracted from a
+`SearchResult` with `confidence=0.50` (an unrecognized source) and one
+extracted from `confidence=1.00` (the company's own website) are not
+equally trustworthy, and a future stage needs that carried through rather
+than re-deriving it from `source_provider`. `confidence` is inherited
+verbatim from the originating `SearchResult`; `raw_text` is the same
+visible-text excerpt already computed for `raw_context["text_excerpt"]`,
+promoted to its own named field for consumers that only care about
+evidence text, not the full raw_context bag; `evidence_type` is a short,
+provider-derived label (`_EVIDENCE_TYPE_BY_SOURCE`) for filtering/weighing
+by evidence kind (e.g. "a press_release is different evidence than a
+web_mention") without string-matching `source_provider` values.
 
 WHY A FAILED/SKIPPED FETCH YIELDS ZERO CANDIDATES, NOT AN ERROR:
 An unreachable page, a robots.txt disallow, or a PDF (out of Version 1
@@ -78,7 +97,25 @@ _FACT_ATTRIBUTES = (
     "phone",
     "linkedin_url",
     "published_at",
+    "event_keywords",
 )
+
+#: Maps a SearchResult.source (the originating SearchProviderPort's
+#: provider_id) to a short, human-readable evidence-kind label — stamped
+#: onto every candidate's new `evidence_type` metadata field (see
+#: enrichment_models.py's ObservationCandidate docstring). An unrecognized
+#: source (a future/unknown provider) falls back to `_DEFAULT_EVIDENCE_TYPE`
+#: rather than raising — this engine must never fail because a new
+#: provider it doesn't yet know about was wired in upstream.
+_EVIDENCE_TYPE_BY_SOURCE: dict[str, str] = {
+    "company_crawler": "company_page",
+    "press_release": "press_release",
+    "linkedin_search": "linkedin_profile",
+    "news_search": "news_article",
+    "google_web_search": "web_mention",
+    "browser_search": "web_mention",
+}
+_DEFAULT_EVIDENCE_TYPE = "web_mention"
 
 
 class SearchExtractionEngine:
@@ -183,6 +220,22 @@ class SearchExtractionEngine:
         observed_at = self._clock()
         raw_context = self._build_raw_context(result, content, facts)
 
+        # Common Federated Search metadata (see enrichment_models.py's
+        # ObservationCandidate docstring), shared by every candidate this
+        # one page produces: which SearchProviderPort actually found this
+        # URL (`source_provider`, distinct from `provider_id="search_extraction"`
+        # above — see module docstring's own "WHY provider_id IS
+        # search_extraction" section), the evidence's own confidence
+        # (inherited from the SearchResult that pointed at it, per
+        # `application/search/confidence.py`), a verbatim text excerpt for
+        # human/audit review, and a short evidence-kind label derived from
+        # that same source.
+        source_provider = result.source
+        confidence = result.confidence
+        raw_text = content.visible_text[: self._settings.excerpt_chars]
+        evidence_type = _EVIDENCE_TYPE_BY_SOURCE.get(result.source, _DEFAULT_EVIDENCE_TYPE)
+        published_date = content.published_at
+
         candidates = [
             ObservationCandidate(
                 subject_id=subject_id,
@@ -194,6 +247,11 @@ class SearchExtractionEngine:
                 observed_at=observed_at,
                 source_url=result.url,
                 raw_context=raw_context,
+                source_provider=source_provider,
+                published_date=published_date,
+                confidence=confidence,
+                raw_text=raw_text,
+                evidence_type=evidence_type,
             )
         ]
 
@@ -208,6 +266,7 @@ class SearchExtractionEngine:
             # ExtractedFacts — already carried in raw_context below either
             # way; promoted here to its own comparable/queryable candidate.
             "published_at": content.published_at,
+            "event_keywords": facts.event_keywords,
         }
         for attribute in _FACT_ATTRIBUTES:
             value = fact_values[attribute]
@@ -221,6 +280,11 @@ class SearchExtractionEngine:
                         observed_at=observed_at,
                         source_url=result.url,
                         raw_context=raw_context,
+                        source_provider=source_provider,
+                        published_date=published_date,
+                        confidence=confidence,
+                        raw_text=raw_text,
+                        evidence_type=evidence_type,
                     )
                 )
 

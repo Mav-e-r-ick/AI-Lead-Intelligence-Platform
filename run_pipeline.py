@@ -78,9 +78,10 @@ no-op, so it never advances a provider's consecutive-failure streak. Any
 other failure (404, a genuine 500, a timeout after retries) is passed
 through to the real ProviderHealthTracker.record_failure() completely
 unchanged — Development Mode never touches how a real website failure is
-handled. Off by default; CompanyWebsiteProvider/BrowserSearchProvider
-themselves are not modified beyond including the failure reason in their
-existing error_message strings (see their own provider.py docstrings).
+handled. Off by default; CompanyWebsiteProvider/CompanyCrawlerProvider/
+PressReleaseProvider themselves are not modified beyond including the
+failure reason in their existing error_message strings (see their own
+provider.py docstrings).
 """
 
 from __future__ import annotations
@@ -135,7 +136,6 @@ from lead_intelligence.application.inflection.rules import ALL_RULES as INFLECTI
 from lead_intelligence.application.ports.enrichment_provider_port import (
     EnrichmentProviderPort,
 )
-from lead_intelligence.application.dto.enrichment_models import ProviderPriority
 from lead_intelligence.application.ports.search_provider_port import SearchProviderPort
 from lead_intelligence.application.search.config import (
     SearchProfile,
@@ -169,23 +169,47 @@ from lead_intelligence.infrastructure.external_services.email_verification.never
 from lead_intelligence.infrastructure.importers.excel.excel_reader import (
     ExcelSourceReader,
 )
-from lead_intelligence.infrastructure.search.browser.provider import (
-    BrowserSearchProvider,
-)
-from lead_intelligence.infrastructure.search.browser.settings import (
-    BrowserSearchProviderSettings,
-)
 from lead_intelligence.infrastructure.search.company_crawler.provider import (
     CompanyCrawlerProvider,
 )
 from lead_intelligence.infrastructure.search.extraction.engine import (
     SearchExtractionEngine,
 )
+from lead_intelligence.infrastructure.search.google.provider import GoogleSearchProvider
+from lead_intelligence.infrastructure.search.google.settings import (
+    GoogleSearchProviderSettings,
+)
+from lead_intelligence.infrastructure.search.linkedin.provider import (
+    LinkedInSearchProvider,
+)
+from lead_intelligence.infrastructure.search.linkedin.settings import (
+    LinkedInSearchProviderSettings,
+)
+from lead_intelligence.infrastructure.search.news.provider import NewsProvider
+from lead_intelligence.infrastructure.search.news.settings import NewsProviderSettings
+from lead_intelligence.infrastructure.search.press_release.provider import (
+    PressReleaseProvider,
+)
 
 _SEARCH_EXTRACTION_PROVIDER_ID = "search_extraction"
 _PAGE_ATTRIBUTE = "web_page"
-_BROWSER_SEARCH_PROVIDER_ID = "browser_search"
 _COMPANY_CRAWLER_PROVIDER_ID = "company_crawler"
+_GOOGLE_WEB_SEARCH_PROVIDER_ID = "google_web_search"
+_LINKEDIN_SEARCH_PROVIDER_ID = "linkedin_search"
+_PRESS_RELEASE_PROVIDER_ID = "press_release"
+_NEWS_SEARCH_PROVIDER_ID = "news_search"
+
+#: Every provider the Federated Search redesign registers with
+#: SearchCoordinator, in the fixed order this module reports them —
+#: see `_build_search_collaborators`'s own docstring for why all five
+#: always run (no fallback_only).
+_FEDERATED_SEARCH_PROVIDER_IDS: tuple[str, ...] = (
+    _COMPANY_CRAWLER_PROVIDER_ID,
+    _GOOGLE_WEB_SEARCH_PROVIDER_ID,
+    _LINKEDIN_SEARCH_PROVIDER_ID,
+    _PRESS_RELEASE_PROVIDER_ID,
+    _NEWS_SEARCH_PROVIDER_ID,
+)
 
 
 class _CountingSearchExtraction:
@@ -208,14 +232,14 @@ class _CountingSearchExtraction:
         return self._engine.extract(subject_id, search_results)
 
 
-#: Substrings CompanyWebsiteProvider/BrowserSearchProvider now include in
-#: their error_message on a connection-level failure or an HTTP 403 (see
-#: provider.py's _last_fetch_failure / _last_query_failure), plus the
-#: specific Chromium network-error codes Playwright surfaces for a
-#: connection that was never established (observed directly, in this
-#: environment, driving BrowserSearchProvider against a real search
-#: engine through a policy-restricted proxy: net::ERR_TUNNEL_CONNECTION_
-#: FAILED). Deliberately excludes generic/ambiguous codes like
+#: Substrings CompanyWebsiteProvider/CompanyCrawlerProvider/PressReleaseProvider
+#: now include in their error_message on a connection-level failure or an
+#: HTTP 403 (see provider.py's _last_fetch_failure / HomepageUnreachable
+#: handling), plus the specific Chromium network-error codes Playwright
+#: surfaces for a connection that was never established (observed
+#: directly, in this environment, driving a Playwright-based provider
+#: through a policy-restricted proxy: net::ERR_TUNNEL_CONNECTION_FAILED).
+#: Deliberately excludes generic/ambiguous codes like
 #: net::ERR_TIMED_OUT, which can just as easily mean "the real site is
 #: slow" as "the network path is blocked" — kept as an explicit,
 #: documented list (not a guess at every possible network error) so
@@ -308,38 +332,60 @@ def _build_verification_coordinator() -> VerificationCoordinator | None:
 def _build_search_collaborators(
     dev_mode: bool,
 ) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None]:
-    """CompanyCrawlerProvider is the Search Layer's primary provider: it
-    crawls each executive's own company website (no third party, no
-    search engine query) for leadership/press/news pages. BrowserSearchProvider
-    is wired in only as an optional, `fallback_only=True` provider — it
-    runs a query against a search engine only when BROWSER_SEARCH_URL_TEMPLATE
-    and friends are configured AND the company crawl itself contributed zero
-    SearchResults for that executive (see SearchProviderConfiguration.fallback_only
-    and SearchCoordinator's fallback-skip logic)."""
+    """The Federated Search redesign's SearchCoordinator wiring: every
+    applicable provider runs on *every* request — no `fallback_only`, no
+    "first provider wins" (see `application/search/coordinator.py`'s own
+    module docstring for why that's now a merge/dedup/confidence-rank
+    step instead). CompanyCrawlerProvider and PressReleaseProvider crawl
+    the executive's own company website (no authorization decision to
+    make, so both always run — same reasoning
+    `CompanyCrawlerProviderSettings`'s own docstring already gives).
+    GoogleSearchProvider, LinkedInSearchProvider, and NewsProvider all
+    share one Google Custom Search API credential
+    (`GOOGLE_SEARCH_API_KEY`/`GOOGLE_SEARCH_ENGINE_ID` — see
+    `infrastructure/search/google/settings.py`'s module docstring for
+    why); if it isn't configured, all three are skipped together (one
+    missing credential means none of the three can call the API at all),
+    and the run proceeds with the two crawler-based providers alone.
+    """
 
     health_tracker = _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
 
-    providers: list[SearchProviderPort] = [CompanyCrawlerProvider()]
+    providers: list[SearchProviderPort] = [
+        CompanyCrawlerProvider(),
+        PressReleaseProvider(),
+    ]
     provider_configurations: dict[str, SearchProviderConfiguration] = {
-        _COMPANY_CRAWLER_PROVIDER_ID: SearchProviderConfiguration(
-            priority=ProviderPriority.HIGH
-        ),
+        _COMPANY_CRAWLER_PROVIDER_ID: SearchProviderConfiguration(),
+        _PRESS_RELEASE_PROVIDER_ID: SearchProviderConfiguration(),
     }
 
     try:
-        browser_settings = BrowserSearchProviderSettings.from_env()
-        browser_settings.validate()
+        google_settings = GoogleSearchProviderSettings.from_env()
+        google_settings.validate()
     except ValueError:
         logger.warning(
-            "BROWSER_SEARCH_URL_TEMPLATE and friends not configured; running "
-            "with CompanyCrawlerProvider only (search engines unavailable as "
-            "a fallback)."
+            "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID not configured; "
+            "running without GoogleSearchProvider, LinkedInSearchProvider, "
+            "or NewsProvider (all three share this one Google Custom Search "
+            "credential). CompanyCrawlerProvider and PressReleaseProvider "
+            "still run."
         )
     else:
-        providers.append(BrowserSearchProvider(browser_settings))
-        provider_configurations[_BROWSER_SEARCH_PROVIDER_ID] = SearchProviderConfiguration(
-            priority=ProviderPriority.LOW, fallback_only=True
+        providers.append(GoogleSearchProvider(google_settings))
+        provider_configurations[_GOOGLE_WEB_SEARCH_PROVIDER_ID] = (
+            SearchProviderConfiguration()
         )
+
+        providers.append(
+            LinkedInSearchProvider(LinkedInSearchProviderSettings.from_env())
+        )
+        provider_configurations[_LINKEDIN_SEARCH_PROVIDER_ID] = (
+            SearchProviderConfiguration()
+        )
+
+        providers.append(NewsProvider(NewsProviderSettings.from_env()))
+        provider_configurations[_NEWS_SEARCH_PROVIDER_ID] = SearchProviderConfiguration()
 
     coordinator = SearchCoordinator(
         SearchProviderRegistry(providers),
@@ -412,16 +458,22 @@ def _build_result_row(
     search_results_found: int,
 ) -> dict:
     row = build_row(report, cleaned_values)
-    browser_search_performed = _BROWSER_SEARCH_PROVIDER_ID in report.providers_executed
+    # Which of the five federated Search Layer providers actually ran for
+    # this executive (see _build_search_collaborators) — replaces the old
+    # single-provider "Browser Search Performed (Yes/No)" column, since
+    # there is no longer one primary provider to report on.
+    executed_search_providers = ", ".join(
+        provider_id
+        for provider_id in _FEDERATED_SEARCH_PROVIDER_IDS
+        if provider_id in report.providers_executed
+    )
     return {
         "Executive Name": row.executive_name,
         "Company": row.company,
         "Company Website Found (Yes/No)": (
             "Yes" if row.company_website_results_found > 0 else "No"
         ),
-        "Browser Search Performed (Yes/No)": (
-            "Yes" if browser_search_performed else "No"
-        ),
+        "Search Providers Executed": executed_search_providers,
         "Search Results Found": search_results_found,
         "Pages Successfully Fetched": _pages_fetched(report),
         "ObservationCandidates Extracted": row.observations_collected,
@@ -440,7 +492,7 @@ def _summary(
         1 for row in rows if row["Company Website Found (Yes/No)"] == "Yes"
     )
     search_performed = sum(
-        1 for row in rows if row["Browser Search Performed (Yes/No)"] == "Yes"
+        1 for row in rows if row["Search Providers Executed"]
     )
     observations_extracted = sum(
         1 for row in rows if row["ObservationCandidates Extracted"] > 0

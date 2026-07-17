@@ -81,13 +81,38 @@ consecutive capitalized words (a capitalized phrase immediately before a
 real name can over-capture; lowercase name particles aren't recognized);
 one page yields at most one fact set; English phrasings only.
 
+## Event keywords (Federated Search redesign)
+
+`fact_extraction.py` also scans a page's title/visible text for a small,
+fixed set of inflection-signal keywords — `promotion`, `appointment`,
+`new_job`, `board`, `resignation`, `retirement`, `steps_down`,
+`acquisition`, `named`, `succession` — reporting every match as a
+comma-joined `event_keywords` fact, independent of whether an
+announcement pattern above also matched (same reasoning as
+email/phone/linkedin_url — a leadership/bio page's prose rarely matches
+one of the five named patterns, but still names *what kind* of event it
+describes). This is a documented signal for a future stage to consume,
+not a decision about which inflection actually occurred — that
+interpretation stays the Inflection Engine's job, unmodified by this
+redesign.
+
 ## What each candidate looks like
 
 Every candidate: `subject_id` (caller-supplied, same opaque-id convention
 as every other stage), `provider_id="search_extraction"` (the component
-that *observed* the fact — the originating search provider stays
-traceable as `raw_context["search_source"]`), `source_url` (the result's
-URL), `observed_at`, and a shared `raw_context`:
+that *observed* the fact), `source_url` (the result's URL), `observed_at`,
+a shared `raw_context`, and — as of the Federated Search redesign — four
+more first-class fields, each inherited from the `SearchResult` the
+candidate was extracted from:
+
+| Field | Content |
+|---|---|
+| `source_provider` | Which `SearchProviderPort` actually found this URL (e.g. `"company_crawler"`, `"linkedin_search"`) — distinct from `provider_id`, which always says `"search_extraction"` (the component that *observed* the fact, not the one that *found* it). |
+| `confidence` | Inherited verbatim from `SearchResult.confidence` — see `application/search/confidence.py`. |
+| `raw_text` | The same visible-text excerpt also carried in `raw_context["text_excerpt"]`, promoted to its own named field. |
+| `evidence_type` | A short, provider-derived label (`"company_page"`, `"press_release"`, `"linkedin_profile"`, `"news_article"`, `"web_mention"`) via `engine.py`'s `_EVIDENCE_TYPE_BY_SOURCE`. |
+
+And a shared `raw_context`:
 
 | `raw_context` key | Content |
 |---|---|

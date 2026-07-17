@@ -7,9 +7,28 @@ Identity Resolution Engine), the coordinator:
 3. Executes the remaining providers in priority order — skipping any
    provider configured `fallback_only=True` once an earlier, higher-
    priority provider has already contributed a result (see
-   `SearchProviderConfiguration.fallback_only`'s own docstring).
-4. Collects every SearchResult from every executed provider.
+   `SearchProviderConfiguration.fallback_only`'s own docstring). The
+   Federated Search redesign's own provider set (CompanyCrawlerProvider,
+   GoogleSearchProvider, LinkedInSearchProvider, PressReleaseProvider,
+   NewsProvider) leaves every provider at its default `fallback_only=False`
+   — every applicable, enabled, healthy provider always runs, every
+   request; `fallback_only` remains supported as a generic, opt-in
+   capability for any provider that still wants it.
+4. Collects every SearchResult from every executed provider, merges
+   duplicates (same normalized URL — kept as the highest-confidence copy
+   among duplicates), and ranks the survivors by confidence descending
+   (see `application/search/result_merging.py`).
 5. Returns one combined SearchCoordinationResult.
+
+WHY MERGE/DEDUP/RANK HAPPENS HERE, NOT PER-PROVIDER:
+A duplicate can only be recognized once every provider's results are
+known — no single provider can tell whether another provider already
+found the same URL. This is the coordinator's one genuinely new
+responsibility under the Federated Search redesign (see
+`result_merging.py`'s own module docstring for the full reasoning); the
+providers themselves stay exactly as narrow as `SearchProviderPort`
+always required (find URLs, assign this result's own confidence, nothing
+else).
 
 WHY THIS MIRRORS application/enrichment/coordinator.py NEARLY LINE FOR
 LINE:
@@ -63,6 +82,7 @@ from lead_intelligence.application.search.config import SearchProfile
 from lead_intelligence.application.search.provider_registry import (
     SearchProviderRegistry,
 )
+from lead_intelligence.application.search.result_merging import dedup_and_rank
 
 
 class SearchCoordinator:
@@ -195,6 +215,8 @@ class SearchCoordinator:
             else:
                 failed += 1
 
+        merged_results = dedup_and_rank(results)
+
         execution_time_total_ms = (time.perf_counter() - start_perf) * 1000
         completed_at = self._clock()
 
@@ -204,19 +226,25 @@ class SearchCoordinator:
             providers_succeeded=succeeded,
             providers_failed=failed,
             providers_skipped=len(skipped),
-            results_collected=len(results),
+            # The count of results actually returned in `.results`, i.e.
+            # *after* merging duplicates across providers — matches what a
+            # caller iterating `.results` will actually see. See
+            # `result_merging.py` for why raw per-provider counts can
+            # legitimately shrink here.
+            results_collected=len(merged_results),
             execution_time_total_ms=execution_time_total_ms,
         )
 
         logger.info(
             "Search coordination complete: subject_id={}, {} executed, "
-            "{} succeeded, {} failed, {} skipped, {} result(s), {:.1f}ms",
+            "{} succeeded, {} failed, {} skipped, {} result(s) (from {} raw), {:.1f}ms",
             subject_id,
             metrics.providers_executed,
             metrics.providers_succeeded,
             metrics.providers_failed,
             metrics.providers_skipped,
             metrics.results_collected,
+            len(results),
             metrics.execution_time_total_ms,
         )
 
@@ -224,7 +252,7 @@ class SearchCoordinator:
             subject_id=subject_id,
             subject_type=subject_type,
             provider_responses=tuple(provider_responses),
-            results=tuple(results),
+            results=merged_results,
             skipped_providers=tuple(skipped),
             started_at=started_at,
             completed_at=completed_at,

@@ -115,6 +115,43 @@ class ObservationCandidate:
         source_url: Where this fact was found, if the provider can say.
         raw_context: Provider-specific extra detail, kept opaque here for
             traceability without this framework needing to understand it.
+        source_provider: Which *originating* search/enrichment provider
+            found the evidence this candidate was extracted from — e.g.
+            "company_crawler", "linkedin_search", "news_search". For a
+            direct EnrichmentProviderPort observation this is the same as
+            `provider_id`; for a Search Layer observation (produced by
+            SearchExtractionEngine, `provider_id="search_extraction"`)
+            this instead names the SearchProviderPort that discovered the
+            URL, letting downstream consumers tell "who actually observed
+            this" (`provider_id`) apart from "who found the source"
+            (`source_provider`) — see `application/search/
+            confidence.py`'s module docstring for the federated-search
+            motivation. Optional and defaulted to preserve every existing
+            caller unchanged.
+        published_date: The evidence's own declared publication/last-
+            updated date, as a raw, unparsed string (same "never guess a
+            format" rule as every other raw date in this codebase), if
+            known.
+        confidence: How much this candidate should be trusted, in
+            [0.0, 1.0] — usually inherited from the `SearchResult.confidence`
+            it was extracted from. Optional: a candidate with no
+            confidence recorded is simply not yet scored, not
+            "confidence zero."
+        raw_text: A verbatim excerpt of the source evidence's own text
+            (e.g. the page's visible-text excerpt, or a search snippet),
+            preserved for human/audit review independent of whatever
+            `raw_context` a specific provider chooses to also carry.
+        evidence_type: A short, provider-defined label for what kind of
+            evidence this is (e.g. "company_page", "press_release",
+            "news_article", "linkedin_profile", "web_mention"), letting a
+            future stage weigh or filter by evidence kind without parsing
+            `provider_id`/`source_provider` strings.
+
+    WHY THESE FIVE FIELDS ARE ALL OPTIONAL, DEFAULTED, AND APPENDED LAST:
+    Every existing `ObservationCandidate(...)` call site (CompanyWebsiteProvider,
+    GoogleSearchProvider, SearchExtractionEngine, every test fixture) keeps
+    compiling and behaving identically — these are additive metadata a
+    caller may now also choose to populate, never a requirement.
     """
 
     subject_id: str
@@ -124,6 +161,11 @@ class ObservationCandidate:
     observed_at: datetime
     source_url: str | None = None
     raw_context: Mapping[str, Any] = field(default_factory=dict)
+    source_provider: str | None = None
+    published_date: str | None = None
+    confidence: float | None = None
+    raw_text: str | None = None
+    evidence_type: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

@@ -121,7 +121,14 @@ class TestScanOrderAndNoMatch:
     def test_lowercase_prose_never_matches_a_name(self) -> None:
         facts = extract_facts("", "someone was appointed manager of the store.")
 
-        assert facts == NO_FACTS
+        # No announcement-pattern (name/title/company) match — event_keywords
+        # is independent of that match, same as email/phone/linkedin_url (see
+        # module docstring), and legitimately detects "appointed" here.
+        assert facts.full_name is None
+        assert facts.title is None
+        assert facts.company_name is None
+        assert facts.matched_pattern is None
+        assert facts.event_keywords == "appointment"
 
 
 class TestDeterminism:
@@ -182,3 +189,56 @@ class TestContactFactsAreIndependentOfAnnouncementPatterns:
         assert facts.email is None
         assert facts.phone is None
         assert facts.linkedin_url is None
+
+
+class TestEventKeywords:
+    """event_keywords is independent of an announcement-pattern match —
+    same reasoning as email/phone/linkedin_url (see module docstring)."""
+
+    def test_promotion_keyword_is_detected(self) -> None:
+        facts = extract_facts("", "Ada Lovelace was promoted to CTO.")
+
+        assert facts.event_keywords == "promotion"
+
+    def test_multiple_keywords_are_all_reported_comma_joined(self) -> None:
+        facts = extract_facts(
+            "", "Ada Lovelace was appointed to the board after being named CEO."
+        )
+
+        assert facts.event_keywords == "appointment, board, named"
+
+    def test_resignation_keyword_is_detected(self) -> None:
+        facts = extract_facts("", "Ada Lovelace resigned as CTO of Acme Corp.")
+
+        assert facts.event_keywords == "resignation"
+
+    def test_retirement_keyword_is_detected(self) -> None:
+        facts = extract_facts("", "Ada Lovelace announced her retirement.")
+
+        assert facts.event_keywords == "retirement"
+
+    def test_steps_down_multi_word_keyword_is_detected(self) -> None:
+        facts = extract_facts("", "Ada Lovelace steps down as CEO.")
+
+        assert facts.event_keywords == "steps_down"
+
+    def test_acquisition_keyword_is_detected(self) -> None:
+        facts = extract_facts("", "Acme Corp was acquired by Globex.")
+
+        assert facts.event_keywords == "acquisition"
+
+    def test_title_is_scanned_alongside_visible_text(self) -> None:
+        facts = extract_facts("Ada Lovelace Promoted to CEO", "")
+
+        assert facts.event_keywords == "promotion"
+
+    def test_unrelated_text_yields_none(self) -> None:
+        facts = extract_facts("Weather forecast", "Sunny with a chance of rain.")
+
+        assert facts.event_keywords is None
+
+    def test_present_alongside_a_matched_announcement_pattern(self) -> None:
+        facts = extract_facts("", "Ada Lovelace was appointed CTO of Acme Corp.")
+
+        assert facts.matched_pattern is not None
+        assert facts.event_keywords == "appointment"

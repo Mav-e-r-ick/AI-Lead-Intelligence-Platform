@@ -70,9 +70,15 @@ def _result_response(provider_id: str, request: SearchRequest) -> SearchResponse
         subject_id=request.subject_id,
         status=EnrichmentStatus.SUCCESS,
         results=(
+            # Distinct URL per provider_id: two different real providers
+            # finding two different pages is the normal case this fixture
+            # models. A test that specifically wants two providers to
+            # report the *same* URL (to exercise dedup_and_rank via the
+            # coordinator) builds that overlap explicitly instead — see
+            # TestMergeDedupAndRank below.
             SearchResult(
                 title="t",
-                url="https://example.com",
+                url=f"https://example.com/{provider_id}",
                 snippet="s",
                 source=provider_id,
                 rank=1,
@@ -416,3 +422,107 @@ class TestFallbackOnly:
 
         assert len(other.calls) == 1
         assert result.skipped_providers == ()
+
+
+def _confident_response(
+    provider_id: str, url: str, confidence: float, request: SearchRequest
+) -> SearchResponse:
+    return SearchResponse(
+        provider_id=provider_id,
+        request_id=request.request_id,
+        subject_id=request.subject_id,
+        status=EnrichmentStatus.SUCCESS,
+        results=(
+            SearchResult(
+                title="t", url=url, snippet="s", source=provider_id, rank=1,
+                confidence=confidence,
+            ),
+        ),
+        error_message=None,
+        started_at=request.requested_at,
+        completed_at=request.requested_at,
+    )
+
+
+class TestMergeDedupAndRank:
+    """SearchCoordinator.search() merges every executed provider's
+    results, deduplicates same-URL results (keeping the highest-confidence
+    copy), and ranks the survivors by confidence descending — the
+    Federated Search redesign's replacement for the old "first provider
+    wins" fallback architecture. See application/search/result_merging.py
+    for the pure logic under test here through the coordinator."""
+
+    def test_two_providers_reporting_the_same_url_collapse_to_one_result(self) -> None:
+        low = FakeSearchProvider(
+            "google_web_search",
+            handler=lambda request: _confident_response(
+                "google_web_search", "https://reuters.com/x", 0.80, request
+            ),
+        )
+        high = FakeSearchProvider(
+            "news_search",
+            handler=lambda request: _confident_response(
+                "news_search", "https://reuters.com/x", 0.94, request
+            ),
+        )
+        coordinator = _coordinator([low, high], SearchProfile(name="t"))
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert len(result.results) == 1
+        assert result.results[0].source == "news_search"
+        assert result.results[0].confidence == 0.94
+        # Both providers still ran and both are still reflected individually
+        # in provider_responses — only the merged `.results` view collapses.
+        assert len(result.provider_responses) == 2
+
+    def test_distinct_urls_from_every_provider_are_all_kept_and_ranked_by_confidence(
+        self,
+    ) -> None:
+        crawler = FakeSearchProvider(
+            "company_crawler",
+            handler=lambda request: _confident_response(
+                "company_crawler", "https://acme.com/team", 1.00, request
+            ),
+        )
+        google = FakeSearchProvider(
+            "google_web_search",
+            handler=lambda request: _confident_response(
+                "google_web_search", "https://example.com/article", 0.80, request
+            ),
+        )
+        press = FakeSearchProvider(
+            "press_release",
+            handler=lambda request: _confident_response(
+                "press_release", "https://acme.com/press/1", 0.95, request
+            ),
+        )
+        coordinator = _coordinator([crawler, google, press], SearchProfile(name="t"))
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert [r.source for r in result.results] == [
+            "company_crawler",
+            "press_release",
+            "google_web_search",
+        ]
+
+    def test_results_collected_metric_reflects_the_deduplicated_count(self) -> None:
+        a = FakeSearchProvider(
+            "a",
+            handler=lambda request: _confident_response(
+                "a", "https://acme.com/x", 0.80, request
+            ),
+        )
+        b = FakeSearchProvider(
+            "b",
+            handler=lambda request: _confident_response(
+                "b", "https://acme.com/x", 0.90, request
+            ),
+        )
+        coordinator = _coordinator([a, b], SearchProfile(name="t"))
+
+        result = coordinator.search(SubjectType.PERSON, "subject-1", {})
+
+        assert result.metrics.results_collected == 1
+        assert len(result.results) == 1

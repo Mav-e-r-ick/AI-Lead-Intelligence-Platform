@@ -9,14 +9,23 @@ two concerns the RFC exists to separate. This file is the Search Layer's
 own vocabulary — deliberately small, since a search provider's job is
 narrow: turn a query into a list of results.
 
-WHY SearchResult HAS EXACTLY title/url/snippet/source/rank, NOT MORE:
-This is the literal field list from the approved RFC. Today's
-GoogleSearchProvider's private `SearchResult` (infrastructure/enrichment/
-google_search/extraction.py) also carries `published_at`, which has no
-home here — that information is not preserved by this DTO. This was a
-deliberate decision (see the RFC's Open Question 3), not an oversight:
-adding fields beyond what was approved would itself be "redesigning" an
-architecture this task was explicitly told not to redesign.
+WHY SearchResult NOW ALSO CARRIES `confidence` (REVISITING THE ORIGINAL
+"EXACTLY title/url/snippet/source/rank" RULE):
+The original RFC's Version 1 scope deliberately excluded any field beyond
+the literal five (see the RFC's Open Question 3) — adding more would have
+been an unauthorized redesign at the time. The Federated Search redesign
+(replacing the single-primary-provider architecture with multiple
+independent providers run every time, per-request) is a different,
+explicitly authorized task: with several providers now legitimately
+finding the same underlying evidence (a news article, a press release, a
+LinkedIn profile), `SearchCoordinator` needs a way to both deduplicate
+overlapping results and prefer the most trustworthy source among
+survivors — see `application/search/confidence.py` and
+`application/search/result_merging.py`. `confidence` defaults to `1.0` so
+any code constructing a `SearchResult` without naming it (existing tests,
+a future minimal provider) keeps behaving exactly as if every result were
+maximally trusted — the same "unset means don't change today's behavior"
+rule this platform already applies to `fallback_only`.
 
 WHY status/health/skip TYPES ARE REUSED FROM enrichment_models.py, NOT
 REDEFINED:
@@ -68,7 +77,18 @@ class SearchResult:
             destination domain, which stays derivable from `url` by
             whichever downstream stage needs it.
         rank: 1-indexed position of this result within the query that
-            produced it (the provider's own ranking, never re-sorted here).
+            produced it (the provider's own ranking, never re-sorted here
+            by the provider itself — `SearchCoordinator` is the one place
+            results from *different* providers get reordered, by
+            `confidence`).
+        confidence: How much this result should be trusted relative to
+            results from other providers, in [0.0, 1.0] — assigned by the
+            provider that produced it (see `application/search/
+            confidence.py` for the shared, documented scoring table every
+            federated provider uses). Defaults to `1.0`: a provider or
+            test that never sets this is unaffected by
+            `SearchCoordinator`'s confidence-based dedup/ranking, exactly
+            as if that step didn't exist.
     """
 
     title: str
@@ -76,6 +96,7 @@ class SearchResult:
     snippet: str
     source: str
     rank: int
+    confidence: float = 1.0
 
 
 @dataclass(frozen=True)

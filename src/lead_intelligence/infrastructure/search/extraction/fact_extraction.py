@@ -30,6 +30,21 @@ therefore extracted independently, via their own regex, from the same
 visible text — same "no AI, deterministic pattern" floor, just not
 coupled to whether an announcement sentence also happened to be present.
 
+WHY event_keywords EXISTS (FEDERATED SEARCH REDESIGN):
+Per the Federated Search redesign's objective — continuously monitoring
+executives for inflection events (promotion, new job, company change,
+board appointment, retirement, resignation, new leadership role,
+executive team update, acquisition-driven role change, press
+announcement) — a page's own prose usually names which *kind* of event it
+describes, independent of whether an announcement-pattern name/title/
+company triple happened to match. `event_keywords` is a small, deterministic
+keyword scan (same "no AI, no LLM" floor as everything else in this
+module) over the page's title and visible text, reporting every matched
+canonical label as a comma-joined string — not a decision about which
+inflection actually occurred (that interpretation stays the Inflection
+Engine's job, unmodified by this redesign), just a documented, traceable
+signal for it to eventually consume.
+
 KNOWN, ACCEPTED VERSION 1 LIMITATIONS (documented, not bugs):
 - Names are recognized as 2–4 consecutive capitalized words; a
   capitalized phrase immediately preceding a real name (e.g. "Officer
@@ -78,6 +93,28 @@ _LINKEDIN_PATTERN = re.compile(
     r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:in|company)/[A-Za-z0-9\-_%]+/?"
 )
 
+#: (canonical_label, compiled_pattern) — every label whose pattern matches
+#: anywhere in the page's title/visible text is reported (see
+#: `_detect_event_keywords`). Deliberately covers this task's own named
+#: inflection categories (promotion, new job, company change, board
+#: appointment, retirement, resignation, leadership role, acquisition,
+#: press announcement) with plain, explainable word matches — no attempt
+#: to disambiguate tense/negation ("did NOT retire" still matches
+#: "retirement"), the same honest-floor limitation FACT_PATTERNS already
+#: accepts for its own regexes.
+_EVENT_KEYWORD_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("promotion", re.compile(r"\b(?:promoted|promotion)\b", re.IGNORECASE)),
+    ("appointment", re.compile(r"\b(?:appointed|appoints?|appointment)\b", re.IGNORECASE)),
+    ("new_job", re.compile(r"\b(?:joins?|joined|joining|hired|hires)\b", re.IGNORECASE)),
+    ("board", re.compile(r"\bboard\b", re.IGNORECASE)),
+    ("resignation", re.compile(r"\b(?:resigned|resigns?|resignation)\b", re.IGNORECASE)),
+    ("retirement", re.compile(r"\b(?:retire[ds]?|retirement|retiring)\b", re.IGNORECASE)),
+    ("steps_down", re.compile(r"\bsteps?\s+down\b", re.IGNORECASE)),
+    ("acquisition", re.compile(r"\bacqui(?:red|res|sition)\b", re.IGNORECASE)),
+    ("named", re.compile(r"\bnamed\b", re.IGNORECASE)),
+    ("succession", re.compile(r"\b(?:succeeds?|successor)\b", re.IGNORECASE)),
+)
+
 
 @dataclass(frozen=True)
 class ExtractedFacts:
@@ -99,6 +136,10 @@ class ExtractedFacts:
             extraction), or None.
         phone: The first phone number found, or None.
         linkedin_url: The first LinkedIn profile URL found, or None.
+        event_keywords: Every canonical inflection-signal label whose
+            keyword pattern matched the page's title/visible text (see
+            `_EVENT_KEYWORD_PATTERNS`), comma-joined in pattern-table
+            order, or None if nothing matched.
     """
 
     full_name: str | None
@@ -108,6 +149,7 @@ class ExtractedFacts:
     email: str | None = None
     phone: str | None = None
     linkedin_url: str | None = None
+    event_keywords: str | None = None
 
 
 NO_FACTS = ExtractedFacts(
@@ -213,7 +255,19 @@ def extract_facts(title: str, visible_text: str) -> ExtractedFacts:
         email=email_match.group(0) if email_match else None,
         phone=phone_match.group(0).strip() if phone_match else None,
         linkedin_url=linkedin_match.group(0) if linkedin_match else None,
+        event_keywords=_detect_event_keywords(f"{title} {visible_text}"),
     )
+
+
+def _detect_event_keywords(text: str) -> str | None:
+    """Every canonical inflection-signal label whose pattern matches
+    `text`, comma-joined in `_EVENT_KEYWORD_PATTERNS` order — or None if
+    nothing matched."""
+
+    if not text:
+        return None
+    matched = [label for label, pattern in _EVENT_KEYWORD_PATTERNS if pattern.search(text)]
+    return ", ".join(matched) if matched else None
 
 
 def _clean(value: str | None) -> str | None:

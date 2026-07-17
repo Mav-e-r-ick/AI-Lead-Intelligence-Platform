@@ -15,17 +15,22 @@ Checks, in order:
     5. Internet connectivity (a real TCP connection, no HTTP request)
     6. DNS resolution (the configured BrowserSearchProvider host, if any,
        else a well-known public host)
-    7. BrowserSearchProvider configuration
-       (BrowserSearchProviderSettings.from_env().validate())
-    8. Output directory exists (or can be created) and is writable
+    7. Federated search providers configuration — whether
+       GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID is set (gates
+       GoogleSearchProvider/LinkedInSearchProvider/NewsProvider; see
+       run_pipeline.py's `_build_search_collaborators`)
+    8. BrowserSearchProvider configuration (informational only —
+       BrowserSearchProvider is no longer part of run_pipeline.py's
+       Search Layer wiring as of the Federated Search redesign)
+    9. Output directory exists (or can be created) and is writable
 
 Each check reports PASS, WARN, or FAIL with a one-line reason. FAIL means
 run_local.py/run_pipeline.py cannot do meaningful work until it's fixed;
-WARN means a piece of optional functionality (Browser Search, real network
-calls) will be degraded or skipped, but the rest of the pipeline still
-runs — the same "one missing piece never blocks the whole run" philosophy
-the pipeline itself already follows for every optional provider. Exits
-0 if there are zero FAILs, 1 otherwise.
+WARN means a piece of optional functionality (some federated search
+providers, real network calls) will be degraded or skipped, but the rest
+of the pipeline still runs — the same "one missing piece never blocks the
+whole run" philosophy the pipeline itself already follows for every
+optional provider. Exits 0 if there are zero FAILs, 1 otherwise.
 
 WHY THIS IS A SEPARATE SCRIPT, NOT PART OF run_local.py ITSELF:
 run_local.py's own job is "run the pipeline" (see its module docstring);
@@ -219,13 +224,22 @@ def check_dns_resolution() -> CheckResult:
 
 
 def check_browser_search_configuration() -> CheckResult:
+    """BrowserSearchProvider is no longer wired into run_pipeline.py's
+    SearchCoordinator as of the Federated Search redesign (see
+    `_build_search_collaborators` in run_pipeline.py) — CompanyCrawlerProvider,
+    GoogleSearchProvider, LinkedInSearchProvider, PressReleaseProvider, and
+    NewsProvider are the five providers an actual pipeline run now uses.
+    This check is kept for anyone still configuring BrowserSearchProvider
+    directly (its own package/tests are unmodified and still usable
+    standalone), but a WARN/FAIL here no longer affects run_pipeline.py."""
+
     try:
         from lead_intelligence.infrastructure.search.browser.settings import (
             BrowserSearchProviderSettings,
         )
     except ImportError:
         return CheckResult(
-            "BrowserSearchProvider configuration",
+            "BrowserSearchProvider configuration (not used by run_pipeline.py)",
             "FAIL",
             "lead_intelligence is not importable (see the check above). "
             "Run: pip install -e .",
@@ -234,20 +248,69 @@ def check_browser_search_configuration() -> CheckResult:
     settings = BrowserSearchProviderSettings.from_env()
     if not settings.search_url_template.strip():
         return CheckResult(
-            "BrowserSearchProvider configuration",
+            "BrowserSearchProvider configuration (not used by run_pipeline.py)",
             "WARN",
-            "BROWSER_SEARCH_URL_TEMPLATE is not set; Browser Search will be "
-            "skipped (optional). Copy .env.local.example to .env.local for a "
-            "working DuckDuckGo-based default.",
+            "BROWSER_SEARCH_URL_TEMPLATE is not set. BrowserSearchProvider is "
+            "no longer part of run_pipeline.py's Search Layer wiring — see "
+            "'Federated search providers configuration' below for what "
+            "actually governs a real run.",
         )
     try:
         settings.validate()
     except ValueError as exc:
-        return CheckResult("BrowserSearchProvider configuration", "FAIL", str(exc))
+        return CheckResult(
+            "BrowserSearchProvider configuration (not used by run_pipeline.py)",
+            "FAIL",
+            str(exc),
+        )
     return CheckResult(
-        "BrowserSearchProvider configuration",
+        "BrowserSearchProvider configuration (not used by run_pipeline.py)",
         "PASS",
         f"search_url_template={settings.search_url_template}",
+    )
+
+
+def check_federated_search_providers_configuration() -> CheckResult:
+    """CompanyCrawlerProvider and PressReleaseProvider need no
+    configuration (see their own settings.py docstrings). GoogleSearchProvider,
+    LinkedInSearchProvider, and NewsProvider all share one Google Custom
+    Search API credential — this check reports whether it's set, since
+    that's the one thing standing between "two federated providers run"
+    and "all five run" for a real run_pipeline.py invocation (see
+    run_pipeline.py's `_build_search_collaborators`)."""
+
+    try:
+        from lead_intelligence.infrastructure.search.google.settings import (
+            GOOGLE_SEARCH_API_KEY_ENV_VAR,
+            GOOGLE_SEARCH_ENGINE_ID_ENV_VAR,
+            GoogleSearchProviderSettings,
+        )
+    except ImportError:
+        return CheckResult(
+            "Federated search providers configuration",
+            "FAIL",
+            "lead_intelligence is not importable (see the check above). "
+            "Run: pip install -e .",
+        )
+
+    settings = GoogleSearchProviderSettings.from_env()
+    if not settings.api_key.strip() or not settings.search_engine_id.strip():
+        return CheckResult(
+            "Federated search providers configuration",
+            "WARN",
+            f"{GOOGLE_SEARCH_API_KEY_ENV_VAR}/{GOOGLE_SEARCH_ENGINE_ID_ENV_VAR} "
+            "not set; GoogleSearchProvider, LinkedInSearchProvider, and "
+            "NewsProvider will be skipped (optional). CompanyCrawlerProvider "
+            "and PressReleaseProvider still run — they need no configuration.",
+        )
+    try:
+        settings.validate()
+    except ValueError as exc:
+        return CheckResult("Federated search providers configuration", "FAIL", str(exc))
+    return CheckResult(
+        "Federated search providers configuration",
+        "PASS",
+        "All five federated Search Layer providers will run.",
     )
 
 
@@ -288,6 +351,7 @@ def run_checks(output_dir: Path) -> list[CheckResult]:
         check_browser_installed(),
         check_internet_connectivity(),
         check_dns_resolution(),
+        check_federated_search_providers_configuration(),
         check_browser_search_configuration(),
         check_output_directory(output_dir),
     ]

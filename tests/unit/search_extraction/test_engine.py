@@ -50,12 +50,17 @@ class TestSuccessfulExtraction:
             "title",
             "company_name",
             "published_at",
+            "event_keywords",
         }
         assert by_attribute["full_name"].value == "Ada Lovelace"
         assert by_attribute["title"].value == "CTO"
         assert by_attribute["company_name"].value == "Acme Corp"
         assert by_attribute["published_at"].value == "2024-05-30T09:00:00Z"
         assert by_attribute["web_page"].value == "Ada Lovelace named CTO of Acme Corp"
+        # The fixture's title/body match both the "appointment" and
+        # "named" event-keyword patterns (see fact_extraction.py's
+        # _EVENT_KEYWORD_PATTERNS), reported in pattern-table order.
+        assert by_attribute["event_keywords"].value == "appointment, named"
 
     def test_every_candidate_carries_subject_id_engine_id_and_source_url(
         self,
@@ -256,3 +261,77 @@ class TestAggregation:
         engine = _engine(build_http_client())
 
         assert engine.extract("row:1", ()) == ()
+
+
+class TestFederatedSearchMetadata:
+    """Every candidate carries source_provider/confidence/raw_text/
+    evidence_type, inherited from the SearchResult it was extracted from
+    — see engine.py's module docstring."""
+
+    def test_source_provider_is_the_originating_search_result_s_source(self) -> None:
+        client = build_http_client(
+            pages={"/article": html_response(announcement_page())}
+        )
+        engine = _engine(client)
+
+        observations = engine.extract(
+            "row:1",
+            (make_search_result("https://news.example.com/article", source="press_release"),),
+        )
+
+        assert all(o.source_provider == "press_release" for o in observations)
+        # provider_id (who *observed* the fact) stays this engine's own id.
+        assert all(o.provider_id == ENGINE_ID for o in observations)
+
+    def test_confidence_is_inherited_from_the_search_result(self) -> None:
+        client = build_http_client(
+            pages={"/article": html_response(announcement_page())}
+        )
+        engine = _engine(client)
+
+        observations = engine.extract(
+            "row:1",
+            (make_search_result("https://news.example.com/article", confidence=0.95),),
+        )
+
+        assert all(o.confidence == 0.95 for o in observations)
+
+    def test_evidence_type_is_derived_from_the_source_provider(self) -> None:
+        client = build_http_client(
+            pages={"/article": html_response(announcement_page())}
+        )
+        engine = _engine(client)
+
+        observations = engine.extract(
+            "row:1",
+            (make_search_result("https://news.example.com/article", source="linkedin_search"),),
+        )
+
+        assert all(o.evidence_type == "linkedin_profile" for o in observations)
+
+    def test_unrecognized_source_falls_back_to_web_mention_evidence_type(self) -> None:
+        client = build_http_client(
+            pages={"/article": html_response(announcement_page())}
+        )
+        engine = _engine(client)
+
+        observations = engine.extract(
+            "row:1",
+            (make_search_result("https://news.example.com/article", source="future_provider"),),
+        )
+
+        assert all(o.evidence_type == "web_mention" for o in observations)
+
+    def test_raw_text_is_a_verbatim_excerpt_of_the_page_s_visible_text(self) -> None:
+        client = build_http_client(
+            pages={"/article": html_response(announcement_page())}
+        )
+        engine = _engine(client)
+
+        observations = engine.extract(
+            "row:1", (make_search_result("https://news.example.com/article"),)
+        )
+
+        page_candidate = next(o for o in observations if o.attribute == "web_page")
+        assert page_candidate.raw_text
+        assert page_candidate.raw_text == page_candidate.raw_context["text_excerpt"]

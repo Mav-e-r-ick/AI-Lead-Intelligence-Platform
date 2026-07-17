@@ -22,8 +22,12 @@ def make_search_result(
     snippet: str = "Search result snippet.",
     source: str = "browser_search",
     rank: int = 1,
+    confidence: float = 1.0,
 ) -> SearchResult:
-    return SearchResult(title=title, url=url, snippet=snippet, source=source, rank=rank)
+    return SearchResult(
+        title=title, url=url, snippet=snippet, source=source, rank=rank,
+        confidence=confidence,
+    )
 
 
 def announcement_page(

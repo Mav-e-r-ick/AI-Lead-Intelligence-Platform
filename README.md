@@ -562,8 +562,34 @@ order the project brief lists them:
     for the exact fallback semantics and its known Version 1 limitations).
     No AI, no LLM, no paid APIs, no change to
     `ExecutiveProcessingOrchestrator`.
-15. Generate AI-personalized outreach messages.
-16. Send emails after a human review step.
+15. ✅ Replace the single-primary-provider Search Layer with **Federated
+    Search**: five independent providers —
+    `CompanyCrawlerProvider` (kept, unmodified, confidence `1.00`),
+    `PressReleaseProvider` (new sibling crawler scoped to press/newsroom/
+    media/investor-relations/announcements, confidence `0.95`),
+    `LinkedInSearchProvider` (new — Google's index of LinkedIn profiles,
+    restricted to `linkedin.com`, confidence `0.98`), `NewsProvider` (new
+    — Reuters/Bloomberg/Yahoo Finance/BusinessWire/PRNewswire/GlobeNewswire,
+    confidence `0.94`/`0.92`), and `GoogleSearchProvider` (new, Search
+    Layer — general web search for inflection keywords, confidence
+    `0.80`) — now **all run on every request**, no fallback logic.
+    `SearchCoordinator` merges every result, deduplicates same-URL results
+    (highest-confidence copy wins), and ranks the survivors by confidence
+    (`application/search/confidence.py`, `result_merging.py`). The
+    unmodified `SearchExtractionEngine` still turns results into
+    `ObservationCandidate`s — widened once more to detect `event_keywords`
+    (promotion/appointment/board/resignation/retirement/acquisition/etc.)
+    and to carry `source_provider`/`confidence`/`raw_text`/`evidence_type`
+    on every candidate. `BrowserSearchProvider` predates this redesign and
+    is no longer registered with `run_pipeline.py`'s `SearchCoordinator`
+    (kept for standalone use). Identity Resolution, Comparison Engine,
+    Inflection Engine, `ExecutiveProcessingOrchestrator`, Cleaning Engine,
+    and Verification Framework are all untouched. No AI, no LLM, no paid
+    APIs (see
+    [`docs/architecture/search_layer_federation.md`](docs/architecture/search_layer_federation.md)
+    for the full architecture, sequence diagram, and rationale).
+16. Generate AI-personalized outreach messages.
+17. Send emails after a human review step.
 
 ## Handling sensitive data
 
