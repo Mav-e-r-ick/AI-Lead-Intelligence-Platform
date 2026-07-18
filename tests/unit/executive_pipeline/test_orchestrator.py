@@ -249,6 +249,64 @@ class TestVerificationScope:
         assert captured == ["ada@acme.com"]
 
 
+class TestZeroObservationsNeverProducesAnInflection:
+    """Regression coverage for a real production bug found running the
+    pipeline against real executives with no reachable search/enrichment
+    evidence (e.g. every provider blocked or failing): comparing an
+    executive against zero observations makes every field compare as
+    MISSING, which used to make InflectionDetectionEngine confidently
+    report EXECUTIVE_NO_LONGER_FOUND for every single such executive —
+    a systematic false positive, not a real signal, since nothing was
+    ever actually searched. _run_inflection_detection now skips inflection
+    detection entirely when zero observations were collected."""
+
+    def test_no_providers_configured_yields_no_inflection_report(self) -> None:
+        orchestrator = build_orchestrator()
+
+        report = orchestrator.process(executive_record(), "person-1")
+
+        assert report.observations_collected == ()
+        assert report.comparison_result is not None
+        assert report.comparison_result.summary.fields_missing > 0
+        assert report.inflection_report is None
+
+    def test_a_provider_returning_zero_observations_also_yields_no_inflection_report(
+        self,
+    ) -> None:
+        def empty_handler(request: EnrichmentRequest) -> EnrichmentResponse:
+            return EnrichmentResponse(
+                provider_id="empty_provider",
+                request_id=request.request_id,
+                subject_id=request.subject_id,
+                status=EnrichmentStatus.SUCCESS,
+                observations=(),
+                error_message=None,
+                started_at=request.requested_at,
+                completed_at=request.requested_at,
+            )
+
+        provider = _person_scoped_provider("empty_provider", empty_handler)
+        orchestrator = build_orchestrator(enrichment_providers=[provider])
+
+        report = orchestrator.process(executive_record(), "person-1")
+
+        assert report.observations_collected == ()
+        assert report.inflection_report is None
+
+    def test_at_least_one_real_observation_still_allows_inflection_detection(
+        self,
+    ) -> None:
+        provider = _person_scoped_provider(
+            "company_website", _promotion_response("company_website")
+        )
+        orchestrator = build_orchestrator(enrichment_providers=[provider])
+
+        report = orchestrator.process(executive_record(), "person-1")
+
+        assert report.observations_collected != ()
+        assert report.inflection_report is not None
+
+
 class TestStageErrorHandling:
     def test_enrichment_stage_error_is_recorded_and_pipeline_continues(self) -> None:
         broken_enrichment_profile = EnrichmentProfile(
@@ -264,9 +322,14 @@ class TestStageErrorHandling:
         assert any(error.startswith("Enrichment (") for error in report.stage_errors)
         # Both subject-type enrichment calls fail independently.
         assert len(report.stage_errors) == 2
-        # Comparison and inflection still run against zero observations.
+        # Comparison still runs against zero observations (every field
+        # correctly compares as MISSING/UNKNOWN), but inflection detection
+        # is skipped: zero observations means no real search evidence
+        # either way, so "no longer found"/"possible resignation" would be
+        # a false positive, not a genuine signal (see
+        # _run_inflection_detection's own docstring/comment).
         assert report.comparison_result is not None
-        assert report.inflection_report is not None
+        assert report.inflection_report is None
         assert report.status is ExecutiveProcessingStatus.PARTIAL
 
     def test_comparison_stage_error_yields_failed_status(self) -> None:
@@ -287,11 +350,19 @@ class TestStageErrorHandling:
         assert report.status is ExecutiveProcessingStatus.FAILED
 
     def test_inflection_stage_error_yields_partial_status(self) -> None:
+        # Inflection detection only runs when at least one observation was
+        # collected (see _run_inflection_detection) — a fake provider
+        # supplies one so the deliberately-broken profile actually reaches
+        # InflectionDetectionEngine.detect() and raises.
+        provider = _person_scoped_provider("fake_provider", _promotion_response("fake_provider"))
         broken_inflection_profile = InflectionProfile(
             name="broken",
             rule_overrides={"INF-001": InflectionRuleOverride(base_confidence=2.0)},
         )
-        orchestrator = build_orchestrator(inflection_profile=broken_inflection_profile)
+        orchestrator = build_orchestrator(
+            enrichment_providers=[provider],
+            inflection_profile=broken_inflection_profile,
+        )
 
         report = orchestrator.process(executive_record(), "person-1")
 

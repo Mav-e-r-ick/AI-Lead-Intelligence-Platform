@@ -280,7 +280,7 @@ class ExecutiveProcessingOrchestrator:
             existing_record, observations, subject_id, stage_errors
         )
         inflection_report = self._run_inflection_detection(
-            comparison_result, subject_id, stage_errors
+            comparison_result, observations, subject_id, stage_errors
         )
         verification_report = self._run_verification(
             cleaned_values, subject_id, stage_errors
@@ -537,10 +537,30 @@ class ExecutiveProcessingOrchestrator:
     def _run_inflection_detection(
         self,
         comparison_result: ComparisonResult | None,
+        observations: tuple[ObservationCandidate, ...],
         subject_id: str,
         stage_errors: list[str],
     ) -> InflectionReport | None:
         if comparison_result is None:
+            return None
+        if not observations:
+            # Zero observations means enrichment/search collected no
+            # evidence at all for this executive (every provider failed,
+            # was skipped, or found nothing) — every field compares as
+            # MISSING purely for that reason, not because a search actually
+            # confirmed the executive is gone. Running the engine here
+            # would fire EXECUTIVE_NO_LONGER_FOUND/POSSIBLE_RESIGNATION for
+            # every such executive, at high confidence, from no real
+            # evidence — a systematic false-positive, not a genuine signal.
+            # See ExecutiveNoLongerFoundRule/PossibleResignationRule's own
+            # docstrings: both are meant to fire when a search *ran and
+            # failed to reconfirm* a field, not when no search evidence
+            # exists at all.
+            logger.info(
+                "Skipping inflection detection for subject_id={}: zero "
+                "observations collected (no real search evidence either way).",
+                subject_id,
+            )
             return None
         try:
             return self._inflection_engine.detect(comparison_result)
