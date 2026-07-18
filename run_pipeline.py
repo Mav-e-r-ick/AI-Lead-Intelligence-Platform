@@ -106,6 +106,10 @@ from lead_intelligence.application.comparison.config import (
     default_profile as default_comparison_profile,
 )
 from lead_intelligence.application.comparison.engine import ComparisonEngine
+from lead_intelligence.application.comparison.resolvers import (
+    resolve_company,
+    resolve_title,
+)
 from lead_intelligence.application.dto.cleaning_models import CleanedLeadRecord
 from lead_intelligence.application.dto.enrichment_models import (
     ObservationCandidate,
@@ -139,6 +143,9 @@ from lead_intelligence.application.inflection.config import (
 from lead_intelligence.application.inflection.engine import InflectionDetectionEngine
 from lead_intelligence.application.inflection.registry import InflectionRuleRegistry
 from lead_intelligence.application.inflection.rules import ALL_RULES as INFLECTION_RULES
+from lead_intelligence.application.messaging.message_generator import (
+    generate_message_for_report,
+)
 from lead_intelligence.application.ports.enrichment_provider_port import (
     EnrichmentProviderPort,
 )
@@ -504,6 +511,12 @@ def _build_result_row(
         for provider_id in _FEDERATED_SEARCH_PROVIDER_IDS
         if provider_id in report.providers_executed
     )
+    outreach_message = generate_message_for_report(
+        report.inflection_report,
+        row.executive_name or "",
+        resolve_company(cleaned_values),
+        resolve_title(cleaned_values),
+    )
     return {
         "Executive Name": row.executive_name,
         "Company": row.company,
@@ -516,6 +529,7 @@ def _build_result_row(
         "ObservationCandidates Extracted": row.observations_collected,
         "Comparison Result": row.comparison_summary,
         "Inflection Detected": row.inflections_detected,
+        "Outreach Message": outreach_message or "",
         "Contact Verification Status": row.verification_status,
         "Errors (if any)": row.errors or "",
     }
@@ -577,6 +591,9 @@ def _summary(
         "Number of Contact Changes": inflection_counts[
             InflectionType.CONTACT_INFO_CHANGED.value
         ],
+        "Outreach Messages Generated": sum(
+            1 for row in rows if row["Outreach Message"]
+        ),
         "Database Fields Updated": database_fields_updated,
         "Processing Time (ms)": round(intelligence_report.duration_ms, 1),
     }
