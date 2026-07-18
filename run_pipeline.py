@@ -87,7 +87,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from loguru import logger
 
@@ -318,8 +318,26 @@ class _DevModeHealthTracker(ProviderHealthTracker):
         return super().record_failure(provider_id, at, error)
 
 
-def _build_enrichment_providers() -> list[EnrichmentProviderPort]:
+class ProviderStatus(NamedTuple):
+    """One line of the Provider Status Report: whether a given provider
+    actually ran in this invocation, and why (or why not). Built at the
+    same place each provider is constructed, from whatever configuration
+    was actually found in the environment — never guessed or assumed."""
+
+    display_name: str
+    enabled: bool
+    reason: str
+
+
+def _build_enrichment_providers() -> tuple[list[EnrichmentProviderPort], list[ProviderStatus]]:
     providers: list[EnrichmentProviderPort] = [CompanyWebsiteProvider()]
+    statuses = [
+        ProviderStatus(
+            "Company Website Provider (enrichment)",
+            True,
+            "no credentials required",
+        )
+    ]
 
     try:
         google_settings = GoogleSearchProviderSettings.from_env()
@@ -329,13 +347,27 @@ def _build_enrichment_providers() -> list[EnrichmentProviderPort]:
             "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID not configured; "
             "running without the Google Search Provider."
         )
+        statuses.append(
+            ProviderStatus(
+                "Google Search Provider (enrichment)",
+                False,
+                "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID missing",
+            )
+        )
     else:
         providers.append(GoogleSearchProvider(settings=google_settings))
+        statuses.append(
+            ProviderStatus(
+                "Google Search Provider (enrichment)",
+                True,
+                "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID configured",
+            )
+        )
 
-    return providers
+    return providers, statuses
 
 
-def _build_verification_coordinator() -> VerificationCoordinator | None:
+def _build_verification_coordinator() -> tuple[VerificationCoordinator | None, list[ProviderStatus]]:
     try:
         neverbounce_settings = NeverBounceSettings.from_env()
         neverbounce_settings.validate()
@@ -343,15 +375,26 @@ def _build_verification_coordinator() -> VerificationCoordinator | None:
         logger.warning(
             "NEVERBOUNCE_API_KEY not configured; running without email verification."
         )
-        return None
+        return None, [
+            ProviderStatus(
+                "NeverBounce Email Verification", False, "NEVERBOUNCE_API_KEY missing"
+            )
+        ]
 
     provider = NeverBounceEmailProvider(settings=neverbounce_settings)
-    return VerificationCoordinator([provider], VerificationProfile(name="run_pipeline"))
+    coordinator = VerificationCoordinator(
+        [provider], VerificationProfile(name="run_pipeline")
+    )
+    return coordinator, [
+        ProviderStatus(
+            "NeverBounce Email Verification", True, "NEVERBOUNCE_API_KEY configured"
+        )
+    ]
 
 
 def _build_search_collaborators(
     dev_mode: bool,
-) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None]:
+) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None, list[ProviderStatus]]:
     """The Federated Search redesign's SearchCoordinator wiring: every
     applicable provider runs on *every* request — no `fallback_only`, no
     "first provider wins" (see `application/search/coordinator.py`'s own
@@ -379,6 +422,14 @@ def _build_search_collaborators(
         _COMPANY_CRAWLER_PROVIDER_ID: SearchProviderConfiguration(),
         _PRESS_RELEASE_PROVIDER_ID: SearchProviderConfiguration(),
     }
+    statuses = [
+        ProviderStatus(
+            "Company Crawler Provider (search)", True, "no credentials required"
+        ),
+        ProviderStatus(
+            "Press Release Provider (search)", True, "no credentials required"
+        ),
+    ]
 
     try:
         google_settings = GoogleSearchProviderSettings.from_env()
@@ -391,6 +442,10 @@ def _build_search_collaborators(
             "credential). CompanyCrawlerProvider and PressReleaseProvider "
             "still run."
         )
+        reason = "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID missing"
+        statuses.append(ProviderStatus("Google Search Provider (search)", False, reason))
+        statuses.append(ProviderStatus("LinkedIn Search Provider (search)", False, reason))
+        statuses.append(ProviderStatus("News Provider (search)", False, reason))
     else:
         providers.append(GoogleSearchProvider(google_settings))
         provider_configurations[_GOOGLE_WEB_SEARCH_PROVIDER_ID] = (
@@ -407,6 +462,11 @@ def _build_search_collaborators(
         providers.append(NewsProvider(NewsProviderSettings.from_env()))
         provider_configurations[_NEWS_SEARCH_PROVIDER_ID] = SearchProviderConfiguration()
 
+        reason = "GOOGLE_SEARCH_API_KEY/GOOGLE_SEARCH_ENGINE_ID configured"
+        statuses.append(ProviderStatus("Google Search Provider (search)", True, reason))
+        statuses.append(ProviderStatus("LinkedIn Search Provider (search)", True, reason))
+        statuses.append(ProviderStatus("News Provider (search)", True, reason))
+
     coordinator = SearchCoordinator(
         SearchProviderRegistry(providers),
         SearchProfile(
@@ -416,7 +476,7 @@ def _build_search_collaborators(
         health_tracker=health_tracker,
     )
     extraction = _CountingSearchExtraction(SearchExtractionEngine())
-    return coordinator, extraction
+    return coordinator, extraction, statuses
 
 
 def _build_executive_repository() -> ExecutiveRepository:
@@ -436,8 +496,17 @@ def _build_executive_repository() -> ExecutiveRepository:
 def build_orchestrator(
     dev_mode: bool = False,
     repository: ExecutiveRepository | None = None,
-) -> tuple[ExecutiveProcessingOrchestrator, _CountingSearchExtraction | None]:
+) -> tuple[ExecutiveProcessingOrchestrator, _CountingSearchExtraction | None, list[ProviderStatus]]:
     """Wire real infrastructure into an ExecutiveProcessingOrchestrator.
+
+    Every provider that needs external credentials (Google Custom Search,
+    NeverBounce) is only constructed if its settings validate against the
+    real environment; otherwise it's left out and the run proceeds with
+    whatever providers are actually available (see `_build_enrichment_providers`,
+    `_build_search_collaborators`, `_build_verification_coordinator`) — no
+    provider being unavailable can fail this function or the run. The
+    third return value is the full Provider Status Report: one
+    ProviderStatus per provider this call considered, enabled or not.
 
     Args:
         dev_mode: When True, both EnrichmentCoordinator and
@@ -459,8 +528,9 @@ def build_orchestrator(
     enrichment_health_tracker = (
         _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
     )
+    enrichment_providers, enrichment_statuses = _build_enrichment_providers()
     enrichment_coordinator = EnrichmentCoordinator(
-        ProviderRegistry(_build_enrichment_providers()),
+        ProviderRegistry(enrichment_providers),
         EnrichmentProfile(name="run_pipeline"),
         health_tracker=enrichment_health_tracker,
     )
@@ -468,21 +538,25 @@ def build_orchestrator(
     inflection_engine = InflectionDetectionEngine(
         InflectionRuleRegistry(INFLECTION_RULES), default_inflection_profile()
     )
-    search_coordinator, search_extraction = _build_search_collaborators(dev_mode)
+    search_coordinator, search_extraction, search_statuses = _build_search_collaborators(
+        dev_mode
+    )
     identity_engine = IdentityResolutionEngine(
         repository or _build_executive_repository(), default_identity_profile()
     )
+    verification_coordinator, verification_statuses = _build_verification_coordinator()
 
     orchestrator = ExecutiveProcessingOrchestrator(
         enrichment_coordinator=enrichment_coordinator,
         comparison_engine=comparison_engine,
         inflection_engine=inflection_engine,
-        verification_coordinator=_build_verification_coordinator(),
+        verification_coordinator=verification_coordinator,
         identity_resolution_engine=identity_engine,
         search_coordinator=search_coordinator,
         search_extraction_engine=search_extraction,
     )
-    return orchestrator, search_extraction
+    provider_statuses = enrichment_statuses + search_statuses + verification_statuses
+    return orchestrator, search_extraction, provider_statuses
 
 
 def _pages_fetched(report: ExecutiveProcessingReport) -> int:
@@ -646,6 +720,7 @@ def _write_processing_report_json(
     rows: list[dict],
     source_path: str,
     sheet_name: str | None,
+    provider_statuses: list[ProviderStatus],
     path: Path,
 ) -> None:
     payload = {
@@ -653,6 +728,7 @@ def _write_processing_report_json(
         "sheet": sheet_name,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary,
+        "provider_status": [status._asdict() for status in provider_statuses],
         "executives": rows,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -672,6 +748,27 @@ def _configure_run_logging(log_dir: Path) -> None:
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _print_provider_status_report(statuses: list[ProviderStatus]) -> None:
+    """Log the Provider Status Report: every provider this run considered,
+    whether it actually ran, and why — so it's obvious at a glance which
+    optional API keys are missing and which providers picked up the slack.
+    """
+
+    enabled = [status for status in statuses if status.enabled]
+    disabled = [status for status in statuses if not status.enabled]
+
+    lines = ["", "=" * 60, "Provider Status Report", "=" * 60]
+    lines.append(f"Enabled ({len(enabled)}):")
+    for status in enabled:
+        lines.append(f"  [ENABLED]  {status.display_name} — {status.reason}")
+    lines.append(f"Disabled ({len(disabled)}):")
+    for status in disabled:
+        lines.append(f"  [DISABLED] {status.display_name} — {status.reason}")
+    lines.append("=" * 60)
+
+    logger.info("\n".join(lines))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -732,7 +829,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     repository = _build_executive_repository()
-    orchestrator, search_extraction = build_orchestrator(
+    orchestrator, search_extraction, provider_statuses = build_orchestrator(
         dev_mode=args.dev_mode, repository=repository
     )
     batch = [
@@ -777,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path = output_dir / args.report_name
     _write_results_xlsx(rows, results_path)
     _write_processing_report_json(
-        summary, rows, args.excel_path, args.sheet, report_path
+        summary, rows, args.excel_path, args.sheet, provider_statuses, report_path
     )
 
     logger.info(
@@ -787,6 +884,7 @@ def main(argv: list[str] | None = None) -> int:
         results_path,
         report_path,
     )
+    _print_provider_status_report(provider_statuses)
     return 0
 
 

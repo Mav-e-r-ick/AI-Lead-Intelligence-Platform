@@ -133,3 +133,109 @@ class TestCurrentFieldValue:
             run_pipeline._current_field_value(comparison, "title", "Old Title")
             == "Old Title"
         )
+
+
+def _clear_provider_env(monkeypatch) -> None:
+    for var in (
+        "GOOGLE_SEARCH_API_KEY",
+        "GOOGLE_SEARCH_ENGINE_ID",
+        "NEVERBOUNCE_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+class TestProviderStatusReporting:
+    """The platform must run with any combination of optional providers
+    configured, disabling — never crashing on — whichever ones aren't."""
+
+    def test_enrichment_providers_disable_google_when_unconfigured(
+        self, monkeypatch
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+
+        providers, statuses = run_pipeline._build_enrichment_providers()
+
+        assert len(providers) == 1  # CompanyWebsiteProvider only
+        google_status = next(s for s in statuses if "Google" in s.display_name)
+        assert google_status.enabled is False
+        assert "GOOGLE_SEARCH_API_KEY" in google_status.reason
+
+    def test_enrichment_providers_enable_google_when_configured(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("GOOGLE_SEARCH_API_KEY", "fake-key")
+        monkeypatch.setenv("GOOGLE_SEARCH_ENGINE_ID", "fake-cx")
+
+        providers, statuses = run_pipeline._build_enrichment_providers()
+
+        assert len(providers) == 2
+        google_status = next(s for s in statuses if "Google" in s.display_name)
+        assert google_status.enabled is True
+
+    def test_search_collaborators_disable_three_google_backed_providers_together(
+        self, monkeypatch
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+
+        coordinator, extraction, statuses = run_pipeline._build_search_collaborators(
+            dev_mode=True
+        )
+
+        disabled = {s.display_name for s in statuses if not s.enabled}
+        assert disabled == {
+            "Google Search Provider (search)",
+            "LinkedIn Search Provider (search)",
+            "News Provider (search)",
+        }
+        enabled = {s.display_name for s in statuses if s.enabled}
+        assert enabled == {
+            "Company Crawler Provider (search)",
+            "Press Release Provider (search)",
+        }
+
+    def test_search_collaborators_never_raises_with_no_providers_configured(
+        self, monkeypatch
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+
+        coordinator, extraction, statuses = run_pipeline._build_search_collaborators(
+            dev_mode=True
+        )
+
+        assert coordinator is not None
+        assert any(s.enabled for s in statuses)  # crawler-based providers still run
+
+    def test_verification_coordinator_disabled_when_unconfigured(
+        self, monkeypatch
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+
+        coordinator, statuses = run_pipeline._build_verification_coordinator()
+
+        assert coordinator is None
+        assert statuses[0].enabled is False
+        assert "NEVERBOUNCE_API_KEY" in statuses[0].reason
+
+    def test_verification_coordinator_enabled_when_configured(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("NEVERBOUNCE_API_KEY", "fake-key")
+
+        coordinator, statuses = run_pipeline._build_verification_coordinator()
+
+        assert coordinator is not None
+        assert statuses[0].enabled is True
+
+    def test_build_orchestrator_never_raises_with_zero_optional_providers_configured(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
+
+        orchestrator, extraction, statuses = run_pipeline.build_orchestrator(
+            dev_mode=True
+        )
+
+        assert orchestrator is not None
+        assert len(statuses) == 8  # every provider this platform knows about
+        assert sum(1 for s in statuses if s.enabled) == 3  # always-on ones only
