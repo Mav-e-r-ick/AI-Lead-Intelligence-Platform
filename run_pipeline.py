@@ -127,6 +127,12 @@ from lead_intelligence.application.evaluation.row_builder import build_row
 from lead_intelligence.application.executive_pipeline.orchestrator import (
     ExecutiveProcessingOrchestrator,
 )
+from lead_intelligence.application.identity_resolution.config import (
+    default_profile as default_identity_profile,
+)
+from lead_intelligence.application.identity_resolution.engine import (
+    IdentityResolutionEngine,
+)
 from lead_intelligence.application.inflection.config import (
     default_profile as default_inflection_profile,
 )
@@ -151,6 +157,15 @@ from lead_intelligence.application.verification.config import VerificationProfil
 from lead_intelligence.application.verification.coordinator import (
     VerificationCoordinator,
 )
+from lead_intelligence.core.config import get_settings
+from lead_intelligence.infrastructure.database.executive_repository import (
+    ExecutiveRepository,
+)
+from lead_intelligence.infrastructure.database.session import (
+    create_engine_from_settings,
+    create_session_factory,
+)
+from lead_intelligence.infrastructure.database.base import Base
 from lead_intelligence.infrastructure.enrichment.company_website.provider import (
     CompanyWebsiteProvider,
 )
@@ -399,8 +414,23 @@ def _build_search_collaborators(
     return coordinator, extraction
 
 
+def _build_executive_repository() -> ExecutiveRepository:
+    """The one durable store this run reads/writes: real database
+    (whatever DATABASE_URL is configured, defaulting to a local SQLite
+    file — see core/config.py's Settings.database_url) so identity
+    matching has real previously-known executives to compare against
+    across separate runs, and so a detected change actually updates the
+    database, per the business requirement."""
+
+    settings = get_settings()
+    engine = create_engine_from_settings(settings)
+    Base.metadata.create_all(engine)
+    return ExecutiveRepository(create_session_factory(engine))
+
+
 def build_orchestrator(
     dev_mode: bool = False,
+    repository: ExecutiveRepository | None = None,
 ) -> tuple[ExecutiveProcessingOrchestrator, _CountingSearchExtraction | None]:
     """Wire real infrastructure into an ExecutiveProcessingOrchestrator.
 
@@ -409,6 +439,9 @@ def build_orchestrator(
             SearchCoordinator get a _DevModeHealthTracker instead of the
             real ProviderHealthTracker — see this module's own docstring
             ("WHY --dev-mode EXISTS") for exactly what that changes.
+        repository: The ExecutiveRepository backing Identity Resolution's
+            candidate lookups. Defaults to `_build_executive_repository()`
+            (the real, configured database); tests inject an isolated one.
     """
 
     if dev_mode:
@@ -431,12 +464,16 @@ def build_orchestrator(
         InflectionRuleRegistry(INFLECTION_RULES), default_inflection_profile()
     )
     search_coordinator, search_extraction = _build_search_collaborators(dev_mode)
+    identity_engine = IdentityResolutionEngine(
+        repository or _build_executive_repository(), default_identity_profile()
+    )
 
     orchestrator = ExecutiveProcessingOrchestrator(
         enrichment_coordinator=enrichment_coordinator,
         comparison_engine=comparison_engine,
         inflection_engine=inflection_engine,
         verification_coordinator=_build_verification_coordinator(),
+        identity_resolution_engine=identity_engine,
         search_coordinator=search_coordinator,
         search_extraction_engine=search_extraction,
     )
@@ -485,7 +522,9 @@ def _build_result_row(
 
 
 def _summary(
-    intelligence_report: ExecutiveIntelligenceReport, rows: list[dict]
+    intelligence_report: ExecutiveIntelligenceReport,
+    rows: list[dict],
+    database_fields_updated: int,
 ) -> dict:
     total = intelligence_report.statistics.total_executives
     website_found = sum(
@@ -504,6 +543,19 @@ def _summary(
         for inflection_type in report.inflection_report.detected_types:
             inflection_counts[inflection_type.value] += 1
 
+    identity_matched = sum(
+        1
+        for report in intelligence_report.executive_reports
+        if report.identity_resolution_outcome is not None
+        and report.identity_resolution_outcome.decision.value == "auto_merge"
+    )
+    identity_new = sum(
+        1
+        for report in intelligence_report.executive_reports
+        if report.identity_resolution_outcome is not None
+        and report.identity_resolution_outcome.decision.value == "new_identity"
+    )
+
     def _rate(numerator: int) -> float:
         return round((numerator / total) * 100, 1) if total else 0.0
 
@@ -513,6 +565,8 @@ def _summary(
         "Website Success Rate": _rate(website_found),
         "Search Success Rate": _rate(search_performed),
         "Observation Extraction Rate": _rate(observations_extracted),
+        "Identity Matched (existing executive)": identity_matched,
+        "Identity New (first time seen)": identity_new,
         "Number of Promotions": inflection_counts[InflectionType.PROMOTION.value],
         "Number of Company Changes": inflection_counts[
             InflectionType.COMPANY_CHANGE.value
@@ -523,6 +577,7 @@ def _summary(
         "Number of Contact Changes": inflection_counts[
             InflectionType.CONTACT_INFO_CHANGED.value
         ],
+        "Database Fields Updated": database_fields_updated,
         "Processing Time (ms)": round(intelligence_report.duration_ms, 1),
     }
 
@@ -632,13 +687,17 @@ def main(argv: list[str] | None = None) -> int:
         "Processing {} record(s) through the orchestrator.", len(cleaned_records)
     )
 
-    orchestrator, search_extraction = build_orchestrator(dev_mode=args.dev_mode)
+    repository = _build_executive_repository()
+    orchestrator, search_extraction = build_orchestrator(
+        dev_mode=args.dev_mode, repository=repository
+    )
     batch = [
         (record, f"row:{record.raw_record.row_number}") for record in cleaned_records
     ]
     intelligence_report = orchestrator.process_batch(batch)
 
     rows = []
+    database_updates = 0
     for record, (existing_record, subject_id) in zip(cleaned_records, batch):
         report = next(
             r
@@ -654,7 +713,21 @@ def main(argv: list[str] | None = None) -> int:
             _build_result_row(report, record.cleaned_values, search_results_found)
         )
 
-    summary = _summary(intelligence_report, rows)
+        # Persistence: write back whatever Comparison detected as
+        # CHANGED/NEW, and stamp the strongest detected inflection, onto
+        # this executive's existing database row (a no-op if this
+        # executive has never been seen before — there's nothing to
+        # update yet). Only *after* that does this executive's own
+        # baseline get recorded/confirmed, so Identity Resolution (which
+        # already ran, inside process_batch above) was matched against
+        # whatever the database looked like *before* this run started,
+        # never against a row this same run just inserted for itself.
+        database_updates += repository.apply_changes(
+            subject_id, report.comparison_result, report.inflection_report
+        )
+        repository.ensure_baseline(subject_id, record.cleaned_values)
+
+    summary = _summary(intelligence_report, rows, database_updates)
 
     results_path = output_dir / args.results_name
     report_path = output_dir / args.report_name
