@@ -45,12 +45,6 @@ to record how many SearchResults came in and how many pages were fetched
 successfully, per subject_id, for this script's own report. It changes no
 behavior — every call is delegated to the real engine unchanged.
 
-WHY IDENTITY RESOLUTION IS NOT WIRED IN HERE:
-No concrete IdentityCandidatePort infrastructure adapter exists yet (no
-identity persistence) — the orchestrator's identity_resolution_engine
-parameter is optional for exactly this reason. This script leaves it
-unset, the same as every other caller until that adapter exists.
-
 WHY GOOGLE SEARCH, BROWSER SEARCH, AND EMAIL VERIFICATION ARE OPTIONAL HERE:
 Each requires operator-supplied configuration (API credentials, or for
 Browser Search an authorized search-engine target) that may not be present
@@ -111,6 +105,10 @@ from lead_intelligence.application.comparison.resolvers import (
     resolve_title,
 )
 from lead_intelligence.application.dto.cleaning_models import CleanedLeadRecord
+from lead_intelligence.application.dto.comparison_models import (
+    ComparisonResult,
+    ComparisonStatus,
+)
 from lead_intelligence.application.dto.enrichment_models import (
     ObservationCandidate,
     ProviderHealth,
@@ -496,6 +494,31 @@ def _pages_fetched(report: ExecutiveProcessingReport) -> int:
     )
 
 
+def _current_field_value(
+    comparison_result: ComparisonResult | None, field_name: str, fallback: str | None
+) -> str | None:
+    """The most up-to-date value for `field_name`: the newly observed
+    value if Comparison found one (CHANGED/NEW), otherwise `fallback`
+    (the existing record's own value).
+
+    WHY THIS EXISTS: an outreach message must describe the executive's
+    *current* situation, not the one being replaced. Building it from the
+    existing record's own cleaned_values alone (ignoring what Comparison
+    just detected) would draft a promotion message that names the
+    executive's *old* title — technically true a moment ago, actively
+    wrong and confusing once sent.
+    """
+
+    if comparison_result is None:
+        return fallback
+    for comparison in comparison_result.field_comparisons:
+        if comparison.field_name != field_name:
+            continue
+        if comparison.status in (ComparisonStatus.CHANGED, ComparisonStatus.NEW):
+            return comparison.new_value or fallback
+    return fallback
+
+
 def _build_result_row(
     report: ExecutiveProcessingReport,
     cleaned_values: Mapping[str, Any],
@@ -514,8 +537,12 @@ def _build_result_row(
     outreach_message = generate_message_for_report(
         report.inflection_report,
         row.executive_name or "",
-        resolve_company(cleaned_values),
-        resolve_title(cleaned_values),
+        _current_field_value(
+            report.comparison_result, "company", resolve_company(cleaned_values)
+        ),
+        _current_field_value(
+            report.comparison_result, "title", resolve_title(cleaned_values)
+        ),
     )
     return {
         "Executive Name": row.executive_name,
