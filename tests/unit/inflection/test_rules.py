@@ -139,6 +139,26 @@ class TestPossibleResignationRule:
 
         assert PossibleResignationRule().detect(result) is None
 
+    def test_does_not_fire_when_company_change_is_confirmed(self) -> None:
+        """Regression test for Product Accuracy Audit Priority 5: a real
+        company-change observation with no full_name observation in the
+        same batch left `title` MISSING (no title evidence either) while
+        `company` genuinely changed -- POSSIBLE_RESIGNATION must not fire
+        alongside that confirmed positive evidence."""
+
+        title = make_field_comparison("title", "CEO", None, ComparisonStatus.MISSING)
+        name = make_field_comparison(
+            "name", "Ada Lovelace", "Ada Lovelace", ComparisonStatus.MATCH
+        )
+        company = make_field_comparison(
+            "company", "Acme Corp", "Globex Inc", ComparisonStatus.CHANGED
+        )
+        result = make_comparison_result(
+            make_all_match_comparisons(title=title, name=name, company=company)
+        )
+
+        assert PossibleResignationRule().detect(result) is None
+
 
 class TestContactInfoChangedRule:
     def test_fires_when_email_changed(self) -> None:
@@ -218,6 +238,53 @@ class TestExecutiveNoLongerFoundRule:
         result = make_comparison_result(make_all_match_comparisons())
 
         assert ExecutiveNoLongerFoundRule().detect(result) is None
+
+    def test_does_not_fire_alongside_a_confirmed_title_change(self) -> None:
+        """Regression test for Product Accuracy Audit Priority 5,
+        reproducing the real co-firing observed in this session's demo:
+        a real title-change observation (e.g. a promotion announcement)
+        with no full_name observation in the same batch (email/phone/
+        title are extracted independently of name by
+        SearchExtractionEngine) left `name` MISSING while `title`
+        genuinely changed -- EXECUTIVE_NO_LONGER_FOUND fired alongside a
+        real, positive PromotionRule detection. It must not."""
+
+        name = make_field_comparison(
+            "name", "Ada Lovelace", None, ComparisonStatus.MISSING
+        )
+        title = make_field_comparison(
+            "title", "Manager", "Vice President", ComparisonStatus.CHANGED
+        )
+        result = make_comparison_result(
+            make_all_match_comparisons(name=name, title=title)
+        )
+
+        assert PromotionRule().detect(result) is not None
+        assert ExecutiveNoLongerFoundRule().detect(result) is None
+
+    def test_does_not_fire_alongside_a_confirmed_company_change(self) -> None:
+        name = make_field_comparison(
+            "name", "Ada Lovelace", None, ComparisonStatus.MISSING
+        )
+        company = make_field_comparison(
+            "company", "Acme Corp", "Globex Inc", ComparisonStatus.CHANGED
+        )
+        result = make_comparison_result(
+            make_all_match_comparisons(name=name, company=company)
+        )
+
+        assert CompanyChangeRule().detect(result) is not None
+        assert ExecutiveNoLongerFoundRule().detect(result) is None
+
+    def test_still_fires_when_no_other_field_has_confirmed_evidence(self) -> None:
+        # Guard rail: the new positive-evidence check must not silently
+        # suppress the genuine, evidence-free case this rule exists for.
+        name = make_field_comparison(
+            "name", "Ada Lovelace", None, ComparisonStatus.MISSING
+        )
+        result = make_comparison_result(make_all_match_comparisons(name=name))
+
+        assert ExecutiveNoLongerFoundRule().detect(result) is not None
 
 
 class TestMutualExclusivity:

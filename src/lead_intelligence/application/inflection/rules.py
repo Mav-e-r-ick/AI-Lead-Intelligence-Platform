@@ -18,6 +18,22 @@ to something other than MISSING — a softer, more tentative signal (hence
 "Possible"). PossibleResignationRule explicitly excludes the case where
 name is also MISSING, so the two rules never both fire off the same
 underlying evidence.
+
+WHY BOTH ALSO CHECK FOR POSITIVE EVIDENCE ELSEWHERE (Product Accuracy
+Audit, Priority 5):
+A real search provider can legitimately confirm *one* field (say, a new
+title from a promotion announcement) without its evidence also happening
+to restate the executive's full name in a form the extraction pattern
+recognizes (SearchExtractionEngine's email/phone patterns are
+independent of its name/title/company pattern — see its own module
+docstring). That left `name` MISSING for a reason that has nothing to do
+with the executive being gone, while EXECUTIVE_NO_LONGER_FOUND/
+POSSIBLE_RESIGNATION fired anyway from that same MISSING name — a
+contradictory pair of inflections in one report (e.g. "promotion" and
+"no longer found" together). `_has_confirmed_evidence_elsewhere` checks
+whether title or company was actually CHANGED this run (real, positive
+evidence the executive *was* found); if so, the two "can't confirm this
+executive" rules stand down rather than contradict that evidence.
 """
 
 from __future__ import annotations
@@ -33,6 +49,19 @@ from lead_intelligence.application.inflection.rule_base import (
     InflectionRuleMetadata,
     get_field_comparison,
 )
+
+
+def _has_confirmed_evidence_elsewhere(comparison_result: ComparisonResult) -> bool:
+    """Whether `title` or `company` was actually CHANGED this run — real,
+    positive evidence that the executive was found and reconfirmed, even
+    though `name` itself is MISSING for this run's evidence (see "WHY
+    BOTH ALSO CHECK..." above)."""
+
+    for field_name in ("title", "company"):
+        comparison = get_field_comparison(comparison_result, field_name)
+        if comparison is not None and comparison.status is ComparisonStatus.CHANGED:
+            return True
+    return False
 from lead_intelligence.application.inflection.seniority import seniority_rank
 
 
@@ -167,6 +196,8 @@ class PossibleResignationRule(InflectionRule):
             return None
         if name.status is ComparisonStatus.MISSING:
             return None  # ExecutiveNoLongerFoundRule covers this, more strongly.
+        if _has_confirmed_evidence_elsewhere(comparison_result):
+            return None  # Real evidence elsewhere contradicts "possible resignation".
 
         return InflectionDraft(
             supporting_comparisons=(title, name),
@@ -260,6 +291,8 @@ class ExecutiveNoLongerFoundRule(InflectionRule):
         name = get_field_comparison(comparison_result, "name")
         if name is None or name.status is not ComparisonStatus.MISSING:
             return None
+        if _has_confirmed_evidence_elsewhere(comparison_result):
+            return None  # Real evidence elsewhere contradicts "no longer found".
 
         return InflectionDraft(
             supporting_comparisons=(name,),
