@@ -57,7 +57,9 @@ DEFAULT_FIELD_RULES: tuple[ComparisonFieldRule, ...] = (
     ComparisonFieldRule(
         "title", ("title",), ComparisonStrategy.FUZZY, fuzzy_threshold=0.80
     ),
-    ComparisonFieldRule("company", (), ComparisonStrategy.FUZZY, fuzzy_threshold=0.80),
+    ComparisonFieldRule(
+        "company", ("company_name",), ComparisonStrategy.FUZZY, fuzzy_threshold=0.80
+    ),
     ComparisonFieldRule("email", ("email",), ComparisonStrategy.EXACT),
     ComparisonFieldRule("phone", ("phone",), ComparisonStrategy.EXACT),
 )

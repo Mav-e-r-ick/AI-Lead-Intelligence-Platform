@@ -77,6 +77,32 @@ def _promotion_response(
     return handler
 
 
+def _company_change_response(
+    provider_id: str,
+) -> Callable[[EnrichmentRequest], EnrichmentResponse]:
+    def handler(request: EnrichmentRequest) -> EnrichmentResponse:
+        return EnrichmentResponse(
+            provider_id=provider_id,
+            request_id=request.request_id,
+            subject_id=request.subject_id,
+            status=EnrichmentStatus.SUCCESS,
+            observations=(
+                ObservationCandidate(
+                    subject_id=request.subject_id,
+                    attribute="company_name",
+                    value="Globex Inc",
+                    provider_id=provider_id,
+                    observed_at=fixed_clock(),
+                ),
+            ),
+            error_message=None,
+            started_at=request.requested_at,
+            completed_at=request.requested_at,
+        )
+
+    return handler
+
+
 def _person_scoped_provider(
     provider_id: str, handler: Callable[[EnrichmentRequest], EnrichmentResponse]
 ) -> FakeEnrichmentProvider:
@@ -167,6 +193,33 @@ class TestHappyPath:
 
         assert report.inflection_report is not None
         assert InflectionType.PROMOTION in report.inflection_report.detected_types
+
+    def test_company_change_is_detected_end_to_end(self) -> None:
+        """Regression test for Product Accuracy Audit finding: the
+        default Comparison profile's "company" field rule had an empty
+        observation_attributes tuple, so a real company_name observation
+        (as SearchExtractionEngine emits) was silently discarded before
+        comparison and CompanyChangeRule could never fire. Fixed in
+        comparison/config.py's DEFAULT_FIELD_RULES."""
+
+        provider = _person_scoped_provider(
+            "company_website", _company_change_response("company_website")
+        )
+        orchestrator = build_orchestrator(enrichment_providers=[provider])
+        record = executive_record(company_name="Acme Corp")
+
+        report = orchestrator.process(record, "person-1")
+
+        assert report.comparison_result is not None
+        company_comparison = next(
+            c
+            for c in report.comparison_result.field_comparisons
+            if c.field_name == "company"
+        )
+        assert company_comparison.status.value == "changed"
+        assert company_comparison.new_value == "Globex Inc"
+        assert report.inflection_report is not None
+        assert InflectionType.COMPANY_CHANGE in report.inflection_report.detected_types
 
 
 class TestProviderRouting:

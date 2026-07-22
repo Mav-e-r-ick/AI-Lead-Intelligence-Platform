@@ -163,7 +163,7 @@ def test_exact_field_conflict_dedup_uses_exact_normalizer() -> None:
     assert email.status is ComparisonStatus.NEW
 
 
-def test_company_field_has_no_observation_attributes_by_default() -> None:
+def test_company_field_is_missing_when_no_company_observation_given() -> None:
     record = make_existing_record({fc.COMPANY_NAME: "Acme Corp"})
 
     result = _engine().compare(
@@ -172,6 +172,29 @@ def test_company_field_has_no_observation_attributes_by_default() -> None:
 
     company = _field(result, "company")
     assert company.status is ComparisonStatus.MISSING
+
+
+def test_company_field_detects_a_changed_company_name() -> None:
+    record = make_existing_record({fc.COMPANY_NAME: "Acme Corp"})
+
+    result = _engine().compare(
+        record, [make_observation("company_name", "Globex Inc")], "row:1"
+    )
+
+    company = _field(result, "company")
+    assert company.status is ComparisonStatus.CHANGED
+    assert company.new_value == "Globex Inc"
+
+
+def test_company_field_matches_an_unchanged_company_name() -> None:
+    record = make_existing_record({fc.COMPANY_NAME: "Acme Corp"})
+
+    result = _engine().compare(
+        record, [make_observation("company_name", "Acme Corp")], "row:1"
+    )
+
+    company = _field(result, "company")
+    assert company.status is ComparisonStatus.MATCH
 
 
 def test_field_comparisons_follow_profile_order() -> None:

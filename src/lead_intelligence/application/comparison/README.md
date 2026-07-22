@@ -61,17 +61,17 @@ punctuation-stripped digits for phone); **FUZZY** fields (name, title,
 company) compare via `comparators.similarity` (a `difflib.SequenceMatcher`
 ratio in `[0.0, 1.0]`) against the field's configured `fuzzy_threshold`.
 
-## Why `company` has no `observation_attributes` by default
+## Why `company`'s `observation_attributes` is `("company_name",)`
 
 The Company Website Provider (`infrastructure/enrichment/company_website/`)
 never reports a discovered company name — it fetches a company's site
-*because* the company is already known, so there is nothing for it to
-tell this engine about that field yet. `ComparisonFieldRule("company", (),
-...)` reflects that honestly: with no observation attributes configured,
-`company` will resolve to `MISSING` (existing present) or `UNKNOWN`
-(existing absent) until a future provider actually emits a company-name
-observation — at which point enabling it is a one-line profile change
-(add the attribute name to `observation_attributes`), not an engine change.
+*because* the company is already known. But `SearchExtractionEngine`
+(the Federated Search redesign's fact-extraction stage) does emit a
+`company_name` observation attribute when an announcement pattern names
+one (see `infrastructure/search/extraction/fact_extraction.py`). Wiring
+that attribute name here was a one-line profile change, exactly as
+originally anticipated — no engine change — bringing `company` in line
+with `name`/`title`, which are already wired the same way.
 
 ## Confidence (`ComparisonSummary.confidence`)
 
