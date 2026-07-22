@@ -239,3 +239,134 @@ class TestProviderStatusReporting:
         assert orchestrator is not None
         assert len(statuses) == 8  # every provider this platform knows about
         assert sum(1 for s in statuses if s.enabled) == 3  # always-on ones only
+
+
+class TestSearchBrowserExecutablePath:
+    """Regression tests for Product Accuracy Audit Priority 1: real
+    execution showed CompanyCrawlerProvider and PressReleaseProvider fail
+    100% of launches with "BrowserType.launch: Executable doesn't exist
+    at .../chromium_headless_shell-1228/..." -- a Playwright pip package
+    / installed browser revision mismatch, not a network issue. Both
+    settings classes already support an executable_path override; this
+    wires it to a new env var, defaulting to unset (unchanged behavior)
+    exactly like BrowserSearchProvider's own BROWSER_SEARCH_EXECUTABLE_PATH."""
+
+    def test_defaults_to_none_when_unset(self, monkeypatch) -> None:
+        monkeypatch.delenv("SEARCH_BROWSER_EXECUTABLE_PATH", raising=False)
+
+        assert run_pipeline._search_browser_executable_path() is None
+
+    def test_reads_the_env_var_when_set(self, monkeypatch) -> None:
+        monkeypatch.setenv(
+            "SEARCH_BROWSER_EXECUTABLE_PATH", "/opt/pw-browsers/chromium"
+        )
+
+        assert (
+            run_pipeline._search_browser_executable_path()
+            == "/opt/pw-browsers/chromium"
+        )
+
+    def test_search_collaborators_pass_the_executable_path_to_both_providers(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setenv(
+            "SEARCH_BROWSER_EXECUTABLE_PATH", "/opt/pw-browsers/chromium"
+        )
+
+        coordinator, extraction, statuses = run_pipeline._build_search_collaborators(
+            dev_mode=True
+        )
+
+        registry = coordinator._registry  # noqa: SLF001 - test-only introspection
+        assert (
+            registry.get("company_crawler")._settings.executable_path  # noqa: SLF001
+            == "/opt/pw-browsers/chromium"
+        )
+        assert (
+            registry.get("press_release")._settings.executable_path  # noqa: SLF001
+            == "/opt/pw-browsers/chromium"
+        )
+
+    def test_search_collaborators_leave_executable_path_unset_by_default(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("SEARCH_BROWSER_EXECUTABLE_PATH", raising=False)
+
+        coordinator, extraction, statuses = run_pipeline._build_search_collaborators(
+            dev_mode=True
+        )
+
+        registry = coordinator._registry  # noqa: SLF001 - test-only introspection
+        assert registry.get("company_crawler")._settings.executable_path is None  # noqa: SLF001
+        assert registry.get("press_release")._settings.executable_path is None  # noqa: SLF001
+
+
+class TestSharedBrowserFactory:
+    """Regression tests for a second, related defect found while
+    validating Priority 1 above (not in the original audit, discovered
+    during this fix's own real-execution validation): once the
+    executable_path fix let both Playwright-based providers actually
+    launch a browser, running them together -- the real, default
+    configuration -- failed with "It looks like you are using Playwright
+    Sync API inside the asyncio loop", because each independently kept
+    its own long-lived Playwright driver alive, and Playwright's sync API
+    does not support two such driver instances coexisting in one
+    process. `_shared_browser_factory` shares one instead."""
+
+    def test_launches_the_real_browser_at_most_once(self, monkeypatch) -> None:
+        launch_count = 0
+
+        class _FakeBrowser:
+            def new_page(self):  # type: ignore[no-untyped-def]
+                return object()
+
+            def close(self) -> None:
+                pass
+
+        class _FakeChromium:
+            def launch(self, **kwargs):  # type: ignore[no-untyped-def]
+                nonlocal launch_count
+                launch_count += 1
+                return _FakeBrowser()
+
+        class _FakeDriver:
+            chromium = _FakeChromium()
+
+            def stop(self) -> None:
+                pass
+
+        class _FakeSyncPlaywrightContext:
+            def start(self) -> "_FakeDriver":
+                return _FakeDriver()
+
+        import playwright.sync_api
+
+        monkeypatch.setattr(
+            playwright.sync_api,
+            "sync_playwright",
+            lambda: _FakeSyncPlaywrightContext(),
+        )
+
+        factory = run_pipeline._shared_browser_factory(None)
+
+        first = factory()
+        second = factory()
+
+        assert launch_count == 1
+        assert first is second
+
+    def test_company_crawler_and_press_release_share_one_browser_factory(
+        self, monkeypatch
+    ) -> None:
+        _clear_provider_env(monkeypatch)
+
+        coordinator, extraction, statuses = run_pipeline._build_search_collaborators(
+            dev_mode=True
+        )
+
+        registry = coordinator._registry  # noqa: SLF001 - test-only introspection
+        crawler = registry.get("company_crawler")
+        press_release = registry.get("press_release")
+        assert (
+            crawler._browser_factory is press_release._browser_factory  # noqa: SLF001
+        )

@@ -87,7 +87,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Mapping, NamedTuple, Sequence
 
 from loguru import logger
 
@@ -192,6 +192,9 @@ from lead_intelligence.infrastructure.importers.excel.excel_reader import (
 from lead_intelligence.infrastructure.search.company_crawler.provider import (
     CompanyCrawlerProvider,
 )
+from lead_intelligence.infrastructure.search.company_crawler.settings import (
+    CompanyCrawlerProviderSettings,
+)
 from lead_intelligence.infrastructure.search.extraction.engine import (
     SearchExtractionEngine,
 )
@@ -209,6 +212,9 @@ from lead_intelligence.infrastructure.search.news.provider import NewsProvider
 from lead_intelligence.infrastructure.search.news.settings import NewsProviderSettings
 from lead_intelligence.infrastructure.search.press_release.provider import (
     PressReleaseProvider,
+)
+from lead_intelligence.infrastructure.search.press_release.settings import (
+    PressReleaseProviderSettings,
 )
 
 _SEARCH_EXTRACTION_PROVIDER_ID = "search_extraction"
@@ -392,6 +398,77 @@ def _build_verification_coordinator() -> tuple[VerificationCoordinator | None, l
     ]
 
 
+#: Product Accuracy Audit, Priority 1: CompanyCrawlerProvider and
+#: PressReleaseProvider both launch a real Playwright/Chromium browser
+#: (see their own settings' `executable_path` field). In an environment
+#: where the installed Playwright pip package expects a browser revision
+#: that doesn't match what's actually installed on disk, Playwright's own
+#: default resolution fails every single launch — a real, verified defect
+#: (BrowserType.launch: Executable doesn't exist at ...), not a network
+#: issue, and distinct from CompanyWebsiteProvider's plain-HTTP fetches.
+#: Both settings classes already support an explicit `executable_path`
+#: override (unused until now); this env var lets an operator point it at
+#: whatever Chromium binary is actually present, exactly like
+#: BrowserSearchProvider's own BROWSER_SEARCH_EXECUTABLE_PATH already
+#: does for its separate, standalone provider. Unset by default — an
+#: environment where Playwright's own resolution works needs no override.
+_SEARCH_BROWSER_EXECUTABLE_PATH_ENV_VAR = "SEARCH_BROWSER_EXECUTABLE_PATH"
+
+
+def _search_browser_executable_path() -> str | None:
+    return os.environ.get(_SEARCH_BROWSER_EXECUTABLE_PATH_ENV_VAR) or None
+
+
+def _shared_browser_factory(executable_path: str | None) -> Callable[[], object]:
+    """A `browser_factory` (the same constructor parameter
+    CompanyCrawlerProvider/PressReleaseProvider already accept for
+    dependency injection in tests) that lazily launches exactly ONE real
+    Playwright/Chromium browser and returns that same instance every time
+    it's called.
+
+    WHY THIS EXISTS (found validating the Priority 1 fix above, not in
+    the original audit): once the executable_path fix let both
+    Playwright-based providers actually launch a browser, running them
+    together in the same process — the real, default configuration,
+    since both always run — failed with "It looks like you are using
+    Playwright Sync API inside the asyncio loop." Verified root cause:
+    each provider independently keeps its own Playwright driver/browser
+    alive across the whole run (a deliberate, sensible performance
+    optimization — see CompanyCrawlerProvider._get_browser — rather than
+    relaunching a browser process per executive), and Playwright's sync
+    API does not support two such long-lived driver instances coexisting
+    in one process. Confirmed by running PressReleaseProvider alone
+    (succeeds) versus alongside CompanyCrawlerProvider (fails). Sharing
+    one real browser between both providers via this already-existing,
+    already-tested injection point resolves it without changing either
+    provider's own source.
+    """
+
+    shared: list[object] = []
+
+    def factory() -> object:
+        if not shared:
+            from playwright.sync_api import sync_playwright
+
+            driver = sync_playwright().start()
+            browser = driver.chromium.launch(
+                headless=True, executable_path=executable_path
+            )
+
+            class _SharedBrowser:
+                def new_page(self):  # type: ignore[no-untyped-def]
+                    return browser.new_page()
+
+                def close(self) -> None:
+                    browser.close()
+                    driver.stop()
+
+            shared.append(_SharedBrowser())
+        return shared[0]
+
+    return factory
+
+
 def _build_search_collaborators(
     dev_mode: bool,
 ) -> tuple[SearchCoordinator | None, _CountingSearchExtraction | None, list[ProviderStatus]]:
@@ -414,9 +491,17 @@ def _build_search_collaborators(
 
     health_tracker = _DevModeHealthTracker() if dev_mode else ProviderHealthTracker()
 
+    browser_executable_path = _search_browser_executable_path()
+    shared_browser_factory = _shared_browser_factory(browser_executable_path)
     providers: list[SearchProviderPort] = [
-        CompanyCrawlerProvider(),
-        PressReleaseProvider(),
+        CompanyCrawlerProvider(
+            CompanyCrawlerProviderSettings(executable_path=browser_executable_path),
+            browser_factory=shared_browser_factory,
+        ),
+        PressReleaseProvider(
+            PressReleaseProviderSettings(executable_path=browser_executable_path),
+            browser_factory=shared_browser_factory,
+        ),
     ]
     provider_configurations: dict[str, SearchProviderConfiguration] = {
         _COMPANY_CRAWLER_PROVIDER_ID: SearchProviderConfiguration(),
