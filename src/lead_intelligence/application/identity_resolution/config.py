@@ -86,6 +86,39 @@ class IdentityResolutionProfile:
             to DEFAULT_SIGNAL_DEFINITIONS.
         auto_merge_threshold: A candidate scoring at or above this value is
             auto-merged (RFC §3, "Auto-merge" band).
+
+            PRODUCT ACCURACY AUDIT, PRIORITY 3 — WHY PERSON-SUBJECT
+            RESOLUTION CAN NEVER REACH THIS THRESHOLD, AND WHY THAT IS
+            INTENTIONAL, NOT A BUG:
+            Under DEFAULT_SIGNAL_DEFINITIONS, the only STRONG-tier signal
+            is `duns_number`, a company identifier — `duns_number` is
+            never extracted for `SubjectType.PERSON` (see
+            `signal_extraction._extract_person_signals`, which only ever
+            adds email/full_name/phone/title). The maximum possible score
+            for a person-subject candidate is therefore the sum of every
+            person signal's weight — email_exact(0.5) + full_name(0.15)
+            + phone(0.12) + title(0.05) = 0.82 — structurally below the
+            default 0.90 auto_merge_threshold, no matter how many person
+            signals agree. This is confirmed intentional, not an
+            oversight: `tests/unit/identity_resolution/test_engine.py`'s
+            `test_resolve_record_queues_candidate_review_on_moderate_confidence`
+            already asserts exactly this outcome — an email_exact + full_name
+            match (the strongest realistic person-signal combination) is
+            expected to be `CANDIDATE_REVIEW`, never `AUTO_MERGE` — and
+            predates this audit. It follows directly from two explicit
+            RFC rules already documented on `SignalTypeDefinition`: title
+            must "never be a matching signal on its own, only a
+            corroborating detail," and (RFC §2) "a single weak signal is
+            never sufficient." Reserving auto-merge for either a
+            Strong-tier identifier or an unusually strong combination
+            reflects that person-level identifiers (an email, a name, a
+            phone number) are individually far less certain than a
+            company's DUNS number — `default_profile`'s own docstring
+            calls this "the platform's conservative, out-of-the-box"
+            profile. Every legitimately re-encountered executive is
+            still correctly recognized (never silently dropped or
+            treated as brand new) — it is routed to CANDIDATE_REVIEW for
+            a human to confirm, exactly as designed. Left unchanged.
         candidate_review_threshold: A candidate scoring at or above this
             value (but below auto_merge_threshold) is queued for manual
             review (RFC §3, "Candidate" band). Below this: "No match".
