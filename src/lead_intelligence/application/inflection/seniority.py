@@ -21,9 +21,45 @@ the rank of the longest matching keyword instead is order-independent and
 always prefers the more specific phrase — the one that actually describes
 the title — over a shorter substring it happens to contain. Ties in length
 are broken by the higher rank.
+
+WHY NAMED C-SUITE FUNCTIONAL TITLES (COO/CFO/CTO/.../Chief Digital Officer)
+SHARE ONE RANK INSTEAD OF EACH GETTING ITS OWN (Product Accuracy Audit,
+Priority 4):
+Before this table was expanded, every one of these titles fell through to
+the generic "chief" keyword, so two *different* named C-suite titles
+always compared as equal rank — correctly silent (no promotion/demotion),
+but for the wrong reason: the specific title was never actually
+recognized, only the generic fallback. Each now has its own explicit,
+traceable entry (so `seniority_rank` reports the specific keyword that
+matched, not "chief"), but they are deliberately kept at the *same* rank
+as each other and as the generic "chief" fallback: there is no real-data
+or audit evidence that, say, a "Chief Financial Officer" outranks a
+"Chief Operating Officer" in every organization (unlike "SVP" > "VP",
+which holds everywhere), so assigning them a strict pecking order would
+be inventing a hierarchy this module has no basis for. A transition
+between two named C-suite titles therefore still correctly produces no
+promotion/demotion signal — the same honest "these are peers, or at
+least this module can't tell" behavior as before, just now backed by
+actually recognizing the title instead of an accidental generic match.
+A transition from a lower tier (VP/SVP/EVP) into any of these, or from
+any of these up to President/CEO, is unaffected and still detected.
+
+Some real-world C-suite acronyms are genuinely ambiguous (e.g. "CRO" is
+both "Chief Revenue Officer" and "Chief Risk Officer"; "CPO" is both
+"Chief Product Officer" and "Chief People Officer"; "CDO" is both "Chief
+Data Officer" and "Chief Digital Officer") — those are recognized only by
+their unambiguous, fully spelled-out form, never by the ambiguous
+acronym, to avoid a confident-looking match that silently guesses wrong.
 """
 
 from __future__ import annotations
+
+#: The shared rank for every explicitly-named C-suite functional title
+#: below (see "WHY NAMED C-SUITE FUNCTIONAL TITLES..." above) — identical
+#: to the pre-existing generic "chief" fallback's rank, so recognizing
+#: these titles by name changes nothing about where they sit relative to
+#: any other tier; it only makes the match specific and traceable.
+_CHIEF_OFFICER_RANK = 12
 
 #: (keyword, rank) — checked as a case-insensitive substring of the title.
 #: Higher rank = more senior. Deliberately not exhaustive; see module
@@ -51,7 +87,26 @@ SENIORITY_KEYWORDS: tuple[tuple[str, int], ...] = (
     ("executive vice president", 10),
     ("evp", 10),
     ("president", 11),
-    ("chief", 12),
+    ("chief", _CHIEF_OFFICER_RANK),
+    ("chief operating officer", _CHIEF_OFFICER_RANK),
+    ("coo", _CHIEF_OFFICER_RANK),
+    ("chief financial officer", _CHIEF_OFFICER_RANK),
+    ("cfo", _CHIEF_OFFICER_RANK),
+    ("chief technology officer", _CHIEF_OFFICER_RANK),
+    ("cto", _CHIEF_OFFICER_RANK),
+    ("chief information officer", _CHIEF_OFFICER_RANK),
+    ("cio", _CHIEF_OFFICER_RANK),
+    ("chief marketing officer", _CHIEF_OFFICER_RANK),
+    ("cmo", _CHIEF_OFFICER_RANK),
+    ("chief human resources officer", _CHIEF_OFFICER_RANK),
+    ("chro", _CHIEF_OFFICER_RANK),
+    ("chief revenue officer", _CHIEF_OFFICER_RANK),  # "CRO" is ambiguous, see module docstring
+    ("chief experience officer", _CHIEF_OFFICER_RANK),
+    ("chief relationship officer", _CHIEF_OFFICER_RANK),
+    ("chief product officer", _CHIEF_OFFICER_RANK),  # "CPO" is ambiguous, see module docstring
+    ("chief growth officer", _CHIEF_OFFICER_RANK),
+    ("chief data officer", _CHIEF_OFFICER_RANK),  # "CDO" is ambiguous, see module docstring
+    ("chief digital officer", _CHIEF_OFFICER_RANK),  # "CDO" is ambiguous, see module docstring
     ("founder", 13),
     ("chief executive officer", 13),
     ("ceo", 13),
