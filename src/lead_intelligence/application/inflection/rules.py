@@ -31,9 +31,27 @@ with the executive being gone, while EXECUTIVE_NO_LONGER_FOUND/
 POSSIBLE_RESIGNATION fired anyway from that same MISSING name — a
 contradictory pair of inflections in one report (e.g. "promotion" and
 "no longer found" together). `_has_confirmed_evidence_elsewhere` checks
-whether title or company was actually CHANGED this run (real, positive
+whether any non-name field was actually CHANGED this run (real, positive
 evidence the executive *was* found); if so, the two "can't confirm this
 executive" rules stand down rather than contradict that evidence.
+
+WHY THAT CHECK COVERS email/phone AND NOT JUST title/company:
+The email and phone cases are in fact the *most* common way this
+misfires, not an edge case. SearchExtractionEngine populates `full_name`,
+`title`, and `company_name` together, from a single matched announcement
+pattern — so a real title change almost always arrives with a name
+attached, and `name` is rarely MISSING for that path. `email` and `phone`
+are extracted independently, by their own regexes, from the same page
+(see fact_extraction.py's "WHY email/phone/linkedin_url ARE NOT GATED ON
+A NAME/TITLE/COMPANY MATCH"). A leadership-page bio card — the exact
+page type CompanyCrawlerProvider spends most of its time on — routinely
+yields an email with no announcement-prose name to parse. That is
+precisely the shape that leaves `name` MISSING while proving the
+executive was found, and it fired EXECUTIVE_NO_LONGER_FOUND at 0.85
+alongside a correct CONTACT_INFO_CHANGED at 0.70 — outranking it, so the
+outreach message drafted was the "it's been a while" one instead of the
+contact-update one. Reproduced end-to-end via simulate_pipeline.py's
+`contact_change` scenario before this list was widened.
 """
 
 from __future__ import annotations
@@ -51,13 +69,21 @@ from lead_intelligence.application.inflection.rule_base import (
 )
 
 
+#: Every comparable field except `name` itself. A CHANGED verdict on any
+#: of these means a new observation supplied a value for it, which is
+#: positive evidence the executive was found — regardless of whether the
+#: same evidence also happened to restate their name (see "WHY THAT CHECK
+#: COVERS email/phone AND NOT JUST title/company" above).
+_CONFIRMING_FIELDS: tuple[str, ...] = ("title", "company", "email", "phone")
+
+
 def _has_confirmed_evidence_elsewhere(comparison_result: ComparisonResult) -> bool:
-    """Whether `title` or `company` was actually CHANGED this run — real,
+    """Whether any non-name field was actually CHANGED this run — real,
     positive evidence that the executive was found and reconfirmed, even
     though `name` itself is MISSING for this run's evidence (see "WHY
     BOTH ALSO CHECK..." above)."""
 
-    for field_name in ("title", "company"):
+    for field_name in _CONFIRMING_FIELDS:
         comparison = get_field_comparison(comparison_result, field_name)
         if comparison is not None and comparison.status is ComparisonStatus.CHANGED:
             return True

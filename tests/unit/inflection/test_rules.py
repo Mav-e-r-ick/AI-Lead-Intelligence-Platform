@@ -276,6 +276,44 @@ class TestExecutiveNoLongerFoundRule:
         assert CompanyChangeRule().detect(result) is not None
         assert ExecutiveNoLongerFoundRule().detect(result) is None
 
+    def test_does_not_fire_alongside_a_confirmed_email_change(self) -> None:
+        """Regression test for the most common real shape of this bug,
+        reproduced end-to-end by simulate_pipeline.py's `contact_change`
+        scenario: SearchExtractionEngine extracts email independently of
+        the name/title/company announcement pattern, so a leadership-page
+        bio card routinely yields a new email with no parseable name --
+        leaving `name` MISSING while proving the executive was found.
+        EXECUTIVE_NO_LONGER_FOUND (0.85) fired anyway and outranked the
+        correct CONTACT_INFO_CHANGED (0.70), so the drafted message was
+        "it's been a while" instead of the contact-update one."""
+
+        name = make_field_comparison(
+            "name", "Ada Lovelace", None, ComparisonStatus.MISSING
+        )
+        email = make_field_comparison(
+            "email", "ada@acme.com", "ada.new@acme.com", ComparisonStatus.CHANGED
+        )
+        result = make_comparison_result(
+            make_all_match_comparisons(name=name, email=email)
+        )
+
+        assert ContactInfoChangedRule().detect(result) is not None
+        assert ExecutiveNoLongerFoundRule().detect(result) is None
+
+    def test_does_not_fire_alongside_a_confirmed_phone_change(self) -> None:
+        name = make_field_comparison(
+            "name", "Ada Lovelace", None, ComparisonStatus.MISSING
+        )
+        phone = make_field_comparison(
+            "phone", "+14155550100", "+14155550199", ComparisonStatus.CHANGED
+        )
+        result = make_comparison_result(
+            make_all_match_comparisons(name=name, phone=phone)
+        )
+
+        assert ContactInfoChangedRule().detect(result) is not None
+        assert ExecutiveNoLongerFoundRule().detect(result) is None
+
     def test_still_fires_when_no_other_field_has_confirmed_evidence(self) -> None:
         # Guard rail: the new positive-evidence check must not silently
         # suppress the genuine, evidence-free case this rule exists for.
