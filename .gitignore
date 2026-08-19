@@ -79,6 +79,11 @@ reports/*
 run_output/
 run_output_*/
 evaluation_report.md
+# simulate_pipeline.py's output. The evidence in it is simulated, but the
+# executives, companies, emails and phone numbers it is built from are the
+# real ones out of your spreadsheet -- same PII risk, same rule.
+simulation_output/
+simulation_output_*/
 
 # --- IDE / editor ------------------------------------------------------
 .vscode/
